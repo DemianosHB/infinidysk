@@ -8,7 +8,12 @@ namespace NzbWebDAV.Tests.Streams;
 public sealed class MultiSegmentStreamStripingTests
 {
     private const int SegmentSize = 64;
-    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+    // Fork note (DemianosHB): raised from 10s to 60s. The orchestrated waits in this
+    // class raced the continuation on busy CI workers and timed out spuriously
+    // (System.TimeoutException, e.g. CachedPrefix_CapacityBelowStripes_NextSegmentNeedsOnlyItsOwnRelease;
+    // same flake pattern upstream fixes test-only in PR #1707 for sibling tests).
+    // These tests assert admission ordering, not latency.
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
     [Fact]
     public async Task StripeHint_InterleavesBatchMembershipAcrossConnections()
