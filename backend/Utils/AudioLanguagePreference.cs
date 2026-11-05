@@ -28,9 +28,9 @@ public static class AudioLanguagePreference
     // a language token must not be preceded by a word character (letters/digits other
     // than the separator set) and must be followed by a separator or end of string, so
     // "ger" inside "Stranger" or "dl" inside "DLNA" never matches.
-    private const string TokenGuardPrefix = @"(?<![^\s\[(_\-.,])";
-    private const string TokenGuardSuffix = @"(?=[\s\[()\]_.\-,]|$)";
-    private const string SubtitleMarkerExclusion = @"(?![ .\-_]?sub(title)?s?)";
+    private const string TokenGuardPrefix = @"(?<![^s[(_-.,])";
+    private const string TokenGuardSuffix = @"(?=[s[()]_-,]|$)";
+    private const string SubtitleMarkerExclusion = @"(?![ .-_]?sub(title)?s?)";
 
     private const RegexOptions Options =
         RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant;
@@ -41,7 +41,7 @@ public static class AudioLanguagePreference
     /// source is never mistaken for the token ("WEB-DL", "WEBDL", "Web.DL.Rip" all
     /// collapse to "web" before scanning).
     /// </summary>
-    private static readonly Regex WebDlSourceTag = new(@"web[ .\-_]?dl", Options);
+    private static readonly Regex WebDlSourceTag = new(@"web[ .-]?dl", Options);
 
     private static readonly Regex DualLanguageToken = new(
         TokenGuardPrefix + @"dl" + SubtitleMarkerExclusion + TokenGuardSuffix,
@@ -58,7 +58,7 @@ public static class AudioLanguagePreference
         ("fr", "french|fra|fr|vf|vff|vfi|vf2|vfq|truefrench"),
         ("es", "spanish|spa|esp|latino"),
         ("it", "italian|ita"),
-        ("pt", "portuguese[ .\\-_]?brazil|pt[ .\\-_]?br"),
+        ("pt", "portuguese[ .\-_]?brazil|pt[ .\-_]?br"),
         ("pt", "portuguese"),
         ("nl", "dutch|dut"),
         ("ru", "russian|rus"),
@@ -73,7 +73,7 @@ public static class AudioLanguagePreference
         ("dan", "danish|dan"),
         ("fin", "finnish|fin"),
         ("pol", "polish|pol"),
-        ("bn", "bengali|ben(?![ .\\-_]?the[ .\\-_]?men)"),
+        ("bn", "bengali|ben(?![ .\-_]?the[ .\-_]?men)"),
         ("pa", "punjabi|pan"),
         ("mr", "marathi|mar"),
         ("gu", "gujarati|guj"),
@@ -130,7 +130,7 @@ public static class AudioLanguagePreference
         "unknown", "none", "other", "original", "noidentity", "nolanguage",
     };
 
-    private static IReadOnlyCollection<string> ParseAttributeLanguages(string? indexerLanguage)
+    private static HashSet<string> ParseAttributeLanguages(string? indexerLanguage)
     {
         return SubtitlePreference.ParseLanguages(indexerLanguage)
             .Where(token => (token.Length > 2 || KnownTwoLetterTokens.Contains(token))

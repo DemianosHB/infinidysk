@@ -15,18 +15,20 @@ public static class ProfileResultSorter
         Func<T, string?>? language = null,
         IReadOnlyList<string>? preferredAudioLanguages = null)
     {
-        var bias = language is not null && preferredAudioLanguages is { Count: > 0 };
-
         var ranked = items.Select(item =>
         {
             var quality = qualitySort == ProfileConfig.QualitySortMode.Off
                 ? ReleaseQualityRanks.Unknown
                 : ReleaseQuality.Parse(title(item));
+            // Null checks inline so the compiler's flow analysis keeps both the
+            // delegate and the preferred list provably non-null in the branch.
+            var languageRank =
+                language is not null && preferredAudioLanguages is { Count: > 0 }
+                    ? AudioLanguagePreference.Rank(preferredAudioLanguages, language(item), title(item))
+                    : 0;
             return new Ranked<T>(
                 item,
-                bias
-                    ? AudioLanguagePreference.Rank(preferredAudioLanguages!, language(item), title(item))
-                    : 0,
+                languageRank,
                 qualitySort == ProfileConfig.QualitySortMode.Off ? 0 : quality.Resolution,
                 qualitySort == ProfileConfig.QualitySortMode.ResolutionAndSource ? quality.Source : 0,
                 grabs(item) ?? -1,
