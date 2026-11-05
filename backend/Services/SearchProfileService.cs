@@ -325,11 +325,12 @@ public class SearchProfileService(
         var now = DateTimeOffset.UtcNow;
         var excludePatterns = configManager.GetSearchExcludePatterns();
         var anyPreferDownloaded = indexers.Any(x => x.Filter is { Enabled: true, PreferDownloaded: true });
+        var preferredAudioLanguages = AudioLanguagePreference.NormalizePreferred(profile.PreferredAudioLanguages);
 
         var perIndexer = await RunPerIndexerQueryAsync(indexers, queryParams, indexerConfig, globalProxy, now, ct)
             .ConfigureAwait(false);
 
-        var deduped = DedupeAndSort(perIndexer, excludePatterns, profile.QualitySort, anyPreferDownloaded);
+        var deduped = DedupeAndSort(perIndexer, excludePatterns, profile.QualitySort, anyPreferDownloaded, preferredAudioLanguages);
 
         var strictIndexers = indexers
             .Where(x => x.EnableStrictMatching)
@@ -414,7 +415,7 @@ public class SearchProfileService(
                     .Select(g => g.First())
                     .ToList();
 
-                deduped = SortHits(combined, profile.QualitySort, anyPreferDownloaded);
+                deduped = SortHits(combined, profile.QualitySort, anyPreferDownloaded, preferredAudioLanguages);
 
                 deduped = ApplyStrictMatching(deduped);
             }
@@ -692,7 +693,8 @@ public class SearchProfileService(
         IEnumerable<IndexerHit>[] perIndexer,
         IReadOnlyList<Regex> excludePatterns,
         ProfileConfig.QualitySortMode qualitySort,
-        bool anyPreferDownloaded)
+        bool anyPreferDownloaded,
+        IReadOnlyList<string>? preferredAudioLanguages)
     {
         var dedupedQuery = perIndexer
             .SelectMany(x => x)
@@ -701,13 +703,14 @@ public class SearchProfileService(
             .GroupBy(x => x.Item.NzbUrl)
             .Select(g => g.First());
 
-        return SortHits(dedupedQuery, qualitySort, anyPreferDownloaded);
+        return SortHits(dedupedQuery, qualitySort, anyPreferDownloaded, preferredAudioLanguages);
     }
 
     private static List<IndexerHit> SortHits(
         IEnumerable<IndexerHit> items,
         ProfileConfig.QualitySortMode qualitySort,
-        bool anyPreferDownloaded) =>
+        bool anyPreferDownloaded,
+        IReadOnlyList<string>? preferredAudioLanguages) =>
         ProfileResultSorter.Sort(
             items,
             x => x.Item.Title,
@@ -715,7 +718,9 @@ public class SearchProfileService(
             x => x.Item.Size,
             x => x.Item.Posted,
             qualitySort,
-            anyPreferDownloaded);
+            anyPreferDownloaded,
+            x => x.Item.Language,
+            preferredAudioLanguages);
 
     private async Task<IReadOnlyList<IReadOnlyDictionary<string, string>>> BuildFallbackQueriesAsync(
         string type,
