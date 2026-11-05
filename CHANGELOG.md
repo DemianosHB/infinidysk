@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.7.2](https://github.com/DemianosHB/infinidysk/compare/v1.7.1...v1.7.2) (2026-11-05)
+
+
+### Features
+
+* **profiles:** bias result ordering toward preferred audio languages ([7bc441e](https://github.com/DemianosHB/infinidysk/commit/7bc441e44f666b346e346303cd63a295c16ed52b))
+* **profiles:** bias result ordering toward preferred audio languages ([504754d](https://github.com/DemianosHB/infinidysk/commit/504754d4c2b38d32c36bc68345cd6e8061c144e2))
+
+
+### Bug Fixes
+
+* **ci:** restore regex escape sequences in AudioLanguagePreference (transport-mangled backslashes) ([21ba22f](https://github.com/DemianosHB/infinidysk/commit/21ba22f58b108b0da892bd3392ffeaadb6e8ee77))
+* **ci:** satisfy nullable flow analysis (CS8602) and CA1859 on ParseAttributeLanguages ([1d61230](https://github.com/DemianosHB/infinidysk/commit/1d61230dfbe30dd3b9122cca77aa9ae07de0b6d5))
+
 ## [1.7.1](https://github.com/infinidysk/infinidysk/compare/v1.7.0...v1.7.1) (2026-11-03)
 
 
