@@ -459,7 +459,13 @@ public class ProfilePlayController(
                 }
             }
 
-            if (ready.Count > 0)
+            // Fork (preferred audio languages): never commit a lower-ranked candidate while
+            // a better-ranked pre-verify is still in flight. The pool order encodes the
+            // profile's audio-language bias, so the first candidate to settle can be a fast
+            // English release while the better-ranked German one is still fetching its NZB.
+            // Waiting is bounded by the better-ranked candidates' own pre-verify lifetimes
+            // and the total budget (deadline) below.
+            if (ready.Count > 0 && !BetterRankedVerifyInFlight(remaining, taskCandidates, rankIndex, ready, deadline))
             {
                 // Among the verified candidates ready to commit, prefer the best-ranked one
                 // that carries subtitles (indexer-declared or a sidecar file in the NZB) over
@@ -540,6 +546,32 @@ public class ProfilePlayController(
             "Batch exited without a winner; remaining verifies cancelled",
             contentGroupKey);
         return (BatchOutcome.AllFailed, null, null);
+    }
+
+    // Fork (preferred audio languages): true while a pre-verify with a better rank than
+    // every ready candidate is still in flight, meaning the commit loop should wait for it
+    // to settle instead of committing a worse-ranked candidate that merely finished first.
+    // Bounded: returns false once the deadline has passed so the budget still guarantees
+    // forward progress.
+    private static bool BetterRankedVerifyInFlight(
+        List<Task<PreVerifyResult>> remaining,
+        Dictionary<Task<PreVerifyResult>, NzbResolutionCache.Candidate> taskCandidates,
+        Dictionary<string, int> rankIndex,
+        SortedList<int, PreVerifyResult> ready,
+        DateTimeOffset deadline)
+    {
+        if (remaining.Count == 0 || ready.Count == 0) return false;
+        if (DateTimeOffset.UtcNow >= deadline) return false;
+        var bestReadyRank = ready.Keys[0];
+        foreach (var task in remaining)
+        {
+            if (taskCandidates.TryGetValue(task, out var candidate)
+                && rankIndex[candidate.NzbUrl] < bestReadyRank)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Signal in-flight pre-verify tasks to abort (freeing indexer/NNTP connections),
