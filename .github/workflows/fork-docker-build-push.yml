@@ -1,0 +1,81 @@
+name: Fork Docker build and push
+
+# Fork-specific image build (DemianosHB/infinidysk, 1.x + preferred-audio-languages patch).
+# Builds the multi-arch image into this fork's own GHCR namespace:
+#   ghcr.io/demianoshb/infinidysk
+# Runs on demand (Actions tab -> Run workflow) or when a tag starting with "v" is pushed.
+# The default GITHUB_TOKEN is enough: packages:write is granted below and GHCR
+# trusts the repo token for packages created by this repo itself.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag (e.g. v1.7.1-lang1)"
+        required: true
+        default: "v1.7.1-lang1"
+      ref:
+        description: "Branch / tag / SHA to build (empty = triggering ref)"
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: fork-docker-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    name: Build and push (amd64 + arm64)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: true
+
+      - name: Resolve image name, tag and version
+        id: vars
+        env:
+          INPUT_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          tag="$(echo "$INPUT_TAG" | sed 's|^v||; s|/|-|g')"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image (amd64 + arm64)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.tag }}
+            ${{ steps.vars.outputs.image }}:latest
+          build-args: |
+            NZBDAV_VERSION=${{ steps.vars.outputs.version }}
+            NZBDAV_COMMIT_SHA=${{ github.sha }}
+            REPO_URL=https://github.com/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -106,5 +106,120 @@ public class ProfileResultSorterTests
             mode,
             preferDownloaded);
 
-    private sealed record Release(string Title, int Grabs, long Size, DateTimeOffset Posted);
+    private sealed record Release(string Title, int Grabs, long Size, DateTimeOffset Posted, string? Language = null);
+
+    private static List<Release> SortWithBias(
+        IEnumerable<Release> items,
+        ProfileConfig.QualitySortMode mode,
+        IReadOnlyList<string> preferredAudioLanguages,
+        bool preferDownloaded = false) =>
+        ProfileResultSorter.Sort(
+            items,
+            item => item.Title,
+            item => item.Grabs,
+            item => item.Size,
+            item => item.Posted,
+            mode,
+            preferDownloaded,
+            item => item.Language,
+            preferredAudioLanguages);
+
+    [Fact]
+    public void Sort_LanguageBias_PutsPreferredLanguageAboveBetterQuality()
+    {
+        var items = new[]
+        {
+            new Release("Movie.2026.PT-BR.BLURAY.2160p.HDR10-GRuP", 50, 30, DateTimeOffset.UnixEpoch),
+            new Release("Movie.2026.GERMAN.WEB-DL.1080p.x264-DE", 5, 10, DateTimeOffset.UnixEpoch),
+        };
+
+        var sorted = SortWithBias(items, ProfileConfig.QualitySortMode.ResolutionAndSource, ["de"]);
+
+        Assert.Equal(
+            ["Movie.2026.GERMAN.WEB-DL.1080p.x264-DE", "Movie.2026.PT-BR.BLURAY.2160p.HDR10-GRuP"],
+            sorted.Select(x => x.Title));
+    }
+
+    [Fact]
+    public void Sort_LanguageBias_IndexerAttributeBeatsTitleTokens()
+    {
+        var items = new[]
+        {
+            // Title screams German but the indexer attributes Portuguese-Brazil.
+            new Release("Movie.2026.GERMAN.2160p.WEB-DL-GRP", 50, 30, DateTimeOffset.UnixEpoch, "Português (Brasil)"),
+            new Release("Movie.2026.GERMAN.1080p.WEB-DL-DE2", 5, 10, DateTimeOffset.UnixEpoch, "German"),
+        };
+
+        var sorted = SortWithBias(items, ProfileConfig.QualitySortMode.ResolutionAndSource, ["de"]);
+
+        Assert.Equal("Movie.2026.GERMAN.1080p.WEB-DL-DE2", sorted[0].Title);
+    }
+
+    [Fact]
+    public void Sort_LanguageBias_TieBreaksAmongMatchesByResolution()
+    {
+        var items = new[]
+        {
+            new Release("Movie.2026.GERMAN.1080p.WEB-DL", 1, 10, DateTimeOffset.UnixEpoch),
+            new Release("Movie.2026.GERMAN.2160p.WEB-DL", 1, 20, DateTimeOffset.UnixEpoch),
+        };
+
+        var sorted = SortWithBias(items, ProfileConfig.QualitySortMode.ResolutionAndSource, ["de"]);
+
+        Assert.Equal("Movie.2026.GERMAN.2160p.WEB-DL", sorted[0].Title);
+    }
+
+    [Fact]
+    public void Sort_LanguageBias_UnknownLanguageKeepsQualityOrder()
+    {
+        // Neither release matches the preference: a known foreign release and an
+        // unknown-language release share the non-match rank, so the existing
+        // resolution ordering decides (fail-open: no demotion of unknowns).
+        var items = new[]
+        {
+            new Release("Movie.2026.MULTi.1080p.BluRay", 1, 10, DateTimeOffset.UnixEpoch),
+            new Release("Movie.2026.PT-BR.2160p.BluRay", 1, 20, DateTimeOffset.UnixEpoch),
+        };
+
+        var sorted = SortWithBias(items, ProfileConfig.QualitySortMode.ResolutionAndSource, ["de"]);
+
+        Assert.Equal("Movie.2026.PT-BR.2160p.BluRay", sorted[0].Title);
+    }
+
+    [Fact]
+    public void Sort_LanguageBias_AppliesEvenWhenQualitySortIsOff()
+    {
+        var items = new[]
+        {
+            new Release("Movie.2026.PT-BR.2160p.BluRay", 1, 10, DateTimeOffset.UnixEpoch),
+            new Release("Movie.2026.DL.1080p.WEB-DL", 1, 10, DateTimeOffset.UnixEpoch),
+        };
+
+        var sorted = SortWithBias(items, ProfileConfig.QualitySortMode.Off, ["de", "en"]);
+
+        Assert.Equal("Movie.2026.DL.1080p.WEB-DL", sorted[0].Title);
+    }
+
+    [Fact]
+    public void Sort_WithoutPreferredLanguages_KeepsQualityOrder()
+    {
+        var items = new[]
+        {
+            new Release("Movie.2026.GERMAN.WEB-DL.1080p.x264-DE", 5, 10, DateTimeOffset.UnixEpoch),
+            new Release("Movie.2026.PT-BR.BLURAY.2160p.HDR10-GRuP", 50, 30, DateTimeOffset.UnixEpoch),
+        };
+
+        var sorted = ProfileResultSorter.Sort(
+            items,
+            item => item.Title,
+            item => item.Grabs,
+            item => item.Size,
+            item => item.Posted,
+            ProfileConfig.QualitySortMode.ResolutionAndSource,
+            preferDownloaded: false,
+            language: item => item.Language,
+            preferredAudioLanguages: []);
+
+        Assert.Equal("Movie.2026.PT-BR.BLURAY.2160p.HDR10-GRuP", sorted[0].Title);
+    }
 }

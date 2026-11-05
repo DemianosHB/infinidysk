@@ -38,6 +38,17 @@ public class ProfileConfig
 
         public QualitySortMode QualitySort { get; set; } = QualitySortMode.Off;
 
+        /// <summary>
+        /// Ordered list of preferred audio languages (e.g. ["de", "en"]; language names
+        /// like "German" are normalised too). Biases result ordering — and therefore
+        /// preflight/watchtower candidate selection — toward releases whose audio
+        /// language matches an earlier entry; ties fall through to the existing
+        /// resolution/source ordering. Fail-open: releases whose language cannot be
+        /// detected confidently are never demoted, they merely receive no boost.
+        /// Null/empty disables the bias (default).
+        /// </summary>
+        public List<string>? PreferredAudioLanguages { get; set; }
+
         public FallbackMode MovieFallback { get; set; } = FallbackMode.Off;
         public FallbackMode TvFallback { get; set; } = FallbackMode.Off;
         public int MovieFallbackMinResults { get; set; } = 3;
