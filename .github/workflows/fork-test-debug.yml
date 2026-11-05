@@ -5,6 +5,7 @@ name: Fork test debug
 # surfaces the exit code, failed test names and hang markers as build
 # annotations via plain shell (no python), because raw fork CI logs are
 # not readable without admin auth. Delete once the cause is identified.
+# Marker 2026-11-05a (flake reproduction round 1)
 
 on:
   push:
