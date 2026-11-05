@@ -1,7 +1,8 @@
 name: Fork test debug
 
-# TEMPORARY fork-only helper (DemianosHB/infinidysk): re-runs the same backend
-# test command as the "Backend tests" CI job and emits FAILED test names as
+# TEMPORARY fork-only helper (DemianosHB/infinidysk): runs the EXACT backend
+# test command of the "Backend tests" CI job (including coverage collection)
+# and surfaces exit code, test counts, failed test names and crash markers as
 # build annotations, because raw fork CI logs are not readable without admin
 # auth. Delete this workflow once the failing test is identified and fixed.
 
@@ -45,29 +46,56 @@ jobs:
           -p:EnforceCodeStyleInBuild=false
           -p:SkipRapidYencNativeEnsure=true
 
-      - name: Test backend and report failures as annotations
+      - name: Test backend (exact CI command) and report as annotations
         env:
           RAPIDYENC_LIBRARY_PATH: ${{ github.workspace }}/libs/RapidYencSharp/runtimes/linux-x64/native/librapidyenc.so
         run: |
           set +e
           dotnet test tests/NzbWebDAV.Tests/NzbWebDAV.Tests.csproj -c Release --no-build --no-restore \
-            --logger "trx;LogFileName=results.trx" --results-directory ./TestResults \
-            --blame-hang-timeout 2m --blame-hang-dump-type none
-          code=$?
+            --collect:"XPlat Code Coverage" \
+            --results-directory ./TestResults \
+            --blame-hang-timeout 2m \
+            --blame-hang-dump-type none \
+            2>&1 | tee test-output.log
+          code=${PIPESTATUS[0]}
           echo "dotnet test exit code: $code"
-          python3 - <<'PY'
-          import glob, xml.etree.ElementTree as ET
-          failed = []
-          for f in glob.glob('TestResults/*.trx'):
-              root = ET.parse(f).getroot()
-              for r in root.iter():
-                  if r.get('outcome') == 'Failed':
-                      name = r.get('testName') or r.get('id') or 'unknown'
-                      failed.append(name)
-          if failed:
+          python3 - "$code" <<'PY'
+          import glob, re, sys, xml.etree.ElementTree as ET
+          code = sys.argv[1]
+          print(f'::notice ::dotnet test exit code: {code}')
+          if code != '0':
+              print(f'::error ::dotnet test exited with {code}')
+          trx = glob.glob('TestResults/**/*.trx', recursive=True)
+          if not trx:
+              print('::error ::NO trx file produced - testhost crashed before results were written')
+          else:
+              counters = {}
+              failed = []
+              for f in trx:
+                  root = ET.parse(f).getroot()
+                  for c in root.iter():
+                      tag = c.tag.split('}')[-1]
+                      if tag == 'Counters':
+                          for k in ('passed', 'failed', 'executed', 'inconclusive'):
+                              counters[k] = c.get(k)
+                      if c.get('outcome') == 'Failed':
+                          failed.append(c.get('testName') or c.get('id') or 'unknown')
+              print(f'::notice ::trx counters: {counters}')
               for name in sorted(set(failed)):
                   print(f'::error ::FAILED TEST: {name}')
-          else:
-              print('::notice ::All backend tests passed')
+          log = open('test-output.log', errors='replace').read()
+          markers = [
+              r'.*Hang.*', r'.*timed out.*', r'.*Testhost process exited with error.*',
+              r'.*StackOverflow.*', r'.*OutOfMemory.*', r'.*Killed.*',
+          ]
+          seen = set()
+          for line in log.splitlines():
+              for m in markers:
+                  if re.match(m, line, re.IGNORECASE) and line.strip() not in seen:
+                      seen.add(line.strip())
+                      msg = line.strip()[:200]
+                      print(f'::error ::CRASH MARKER: {msg}')
+          if not seen:
+              print('::notice ::No crash markers found in test output')
           PY
           exit 0
