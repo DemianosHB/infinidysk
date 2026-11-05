@@ -1,10 +1,12 @@
 name: Fork test debug
 
-# TEMPORARY fork-only helper (DemianosHB/infinidysk): runs the EXACT backend
-# test command of the "Backend tests" CI job (including coverage collection)
-# and surfaces exit code, test counts, failed test names and crash markers as
-# build annotations, because raw fork CI logs are not readable without admin
-# auth. Delete this workflow once the failing test is identified and fixed.
+# TEMPORARY fork-only helper (DemianosHB/infinidysk): diagnose the flaky
+# "Backend tests" CI failures on v1. Runs two variants in parallel:
+#   1) the EXACT CI test command (with XPlat Code Coverage collection)
+#   2) the same command WITHOUT coverage collection (control group)
+# and surfaces exit codes, failed test names and crash markers as build
+# annotations, because raw fork CI logs are not readable without admin auth.
+# Delete this workflow once the cause is identified and fixed.
 
 on:
   push:
@@ -12,41 +14,42 @@ on:
       - v1
   workflow_dispatch: {}
 
+concurrency:
+  group: fork-test-debug
+  cancel-in-progress: true
+
 jobs:
-  backend-test-report:
-    name: Backend test report
+  test-with-coverage:
+    name: Backend test (with coverage, exact CI command)
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    timeout-minutes: 25
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
         with:
           persist-credentials: false
           submodules: true
-
       - name: Set up .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.x
-
       - name: Verify native build tools
         run: cmake --version && ninja --version
-
       - name: Build rapidyenc (linux-x64)
         run: scripts/build-rapidyenc.sh linux-x64
-
       - name: Restore .NET solution
         run: dotnet restore NzbWebDAV.sln
-
       - name: Build backend test project
         run: >
           dotnet build tests/NzbWebDAV.Tests/NzbWebDAV.Tests.csproj -c Release --no-restore
           -p:RunAnalyzers=false
           -p:EnforceCodeStyleInBuild=false
           -p:SkipRapidYencNativeEnsure=true
-
-      - name: Test backend (exact CI command) and report as annotations
+      - name: Test backend (exact CI command)
+        id: test
+        timeout-minutes: 12
         env:
           RAPIDYENC_LIBRARY_PATH: ${{ github.workspace }}/libs/RapidYencSharp/runtimes/linux-x64/native/librapidyenc.so
         run: |
@@ -56,46 +59,87 @@ jobs:
             --results-directory ./TestResults \
             --blame-hang-timeout 2m \
             --blame-hang-dump-type none \
-            2>&1 | tee test-output.log
-          code=${PIPESTATUS[0]}
-          echo "dotnet test exit code: $code"
-          python3 - "$code" <<'PY'
-          import glob, re, sys, xml.etree.ElementTree as ET
-          code = sys.argv[1]
-          print(f'::notice ::dotnet test exit code: {code}')
-          if code != '0':
-              print(f'::error ::dotnet test exited with {code}')
-          trx = glob.glob('TestResults/**/*.trx', recursive=True)
-          if not trx:
-              print('::error ::NO trx file produced - testhost crashed before results were written')
-          else:
-              counters = {}
-              failed = []
-              for f in trx:
-                  root = ET.parse(f).getroot()
-                  for c in root.iter():
-                      tag = c.tag.split('}')[-1]
-                      if tag == 'Counters':
-                          for k in ('passed', 'failed', 'executed', 'inconclusive'):
-                              counters[k] = c.get(k)
-                      if c.get('outcome') == 'Failed':
-                          failed.append(c.get('testName') or c.get('id') or 'unknown')
-              print(f'::notice ::trx counters: {counters}')
-              for name in sorted(set(failed)):
-                  print(f'::error ::FAILED TEST: {name}')
-          log = open('test-output.log', errors='replace').read()
-          markers = [
-              r'.*Hang.*', r'.*timed out.*', r'.*Testhost process exited with error.*',
-              r'.*StackOverflow.*', r'.*OutOfMemory.*', r'.*Killed.*',
-          ]
-          seen = set()
-          for line in log.splitlines():
-              for m in markers:
-                  if re.match(m, line, re.IGNORECASE) and line.strip() not in seen:
-                      seen.add(line.strip())
-                      msg = line.strip()[:200]
-                      print(f'::error ::CRASH MARKER: {msg}')
-          if not seen:
-              print('::notice ::No crash markers found in test output')
-          PY
+            2>&1 | tee cov-test.log
+          echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
           exit 0
+      - name: Annotate results
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import re, os
+          exit_code = os.environ.get('TEST_EXIT', '?')
+          log = open('cov-test.log', errors='replace').read()
+          failed = sorted(set(re.findall(r'^s*Faileds+(S.*?)s+[d+', log, re.M)))
+          totals = [l.strip() for l in log.splitlines() if re.search(r'(Passed!?|Failed!?|Skipped)', l) and ':' in l]
+          print(f'::notice ::WITH COVERAGE - dotnet test exit code: {exit_code}')
+          for t in totals[:5]:
+              print(f'::notice ::{t[:200]}')
+          for name in failed:
+              print(f'::error ::FAILED TEST: {name[:200]}')
+          if not failed:
+              print('::notice ::No "Failed <test>" lines found in console output')
+          markers = re.findall(r'^.*(Hang Detector|timed out|Testhost process exited with error|StackOverflow|OutOfMemory|Killed).*$', log, re.M | re.I)
+          for m in sorted(set(markers))[:5]:
+              print(f'::error ::CRASH MARKER: {m.strip()[:200]}')
+          if not markers:
+              print('::notice ::No crash markers found')
+          PY
+
+  test-without-coverage:
+    name: Backend test (control, no coverage collection)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
+        with:
+          persist-credentials: false
+          submodules: true
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Verify native build tools
+        run: cmake --version && ninja --version
+      - name: Build rapidyenc (linux-x64)
+        run: scripts/build-rapidyenc.sh linux-x64
+      - name: Restore .NET solution
+        run: dotnet restore NzbWebDAV.sln
+      - name: Build backend test project
+        run: >
+          dotnet build tests/NzbWebDAV.Tests/NzbWebDAV.Tests.csproj -c Release --no-restore
+          -p:RunAnalyzers=false
+          -p:EnforceCodeStyleInBuild=false
+          -p:SkipRapidYencNativeEnsure=true
+      - name: Test backend (no coverage)
+        timeout-minutes: 12
+        env:
+          RAPIDYENC_LIBRARY_PATH: ${{ github.workspace }}/libs/RapidYencSharp/runtimes/linux-x64/native/librapidyenc.so
+        run: |
+          set +e
+          dotnet test tests/NzbWebDAV.Tests/NzbWebDAV.Tests.csproj -c Release --no-build --no-restore \
+            --blame-hang-timeout 2m \
+            --blame-hang-dump-type none \
+            2>&1 | tee plain-test.log
+          echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Annotate results
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import re, os
+          log = open('plain-test.log', errors='replace').read()
+          failed = sorted(set(re.findall(r'^s*Faileds+(S.*?)s+[d+', log, re.M)))
+          print(f'::notice ::NO COVERAGE (control) - dotnet test exit code: ' + os.environ.get('TEST_EXIT', '?'))
+          for name in failed:
+              print(f'::error ::CONTROL FAILED TEST: {name[:200]}')
+          if not failed:
+              print('::notice ::Control run: no "Failed <test>" lines found')
+          markers = re.findall(r'^.*(Hang Detector|timed out|Testhost process exited with error|StackOverflow|OutOfMemory|Killed).*$', log, re.M | re.I)
+          for m in sorted(set(markers))[:5]:
+              print(f'::error ::CONTROL CRASH MARKER: {m.strip()[:200]}')
+          PY
+        env:
+          TEST_EXIT: ${{ steps.test.outputs.exit }}
