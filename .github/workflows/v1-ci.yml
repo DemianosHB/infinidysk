@@ -368,13 +368,30 @@ jobs:
       - name: Test backend
         env:
           RAPIDYENC_LIBRARY_PATH: ${{ github.workspace }}/libs/RapidYencSharp/runtimes/linux-x64/native/librapidyenc.so
-        run: >
-          dotnet test tests/NzbWebDAV.Tests/NzbWebDAV.Tests.csproj -c Release
-          --no-build --no-restore
-          --collect:"XPlat Code Coverage"
-          --results-directory ./TestResults
-          --blame-hang-timeout 2m
-          --blame-hang-dump-type none
+        run: |
+          set +e
+          dotnet test tests/NzbWebDAV.Tests/NzbWebDAV.Tests.csproj -c Release \
+            --no-build --no-restore \
+            --collect:"XPlat Code Coverage" \
+            --results-directory ./TestResults \
+            --blame-hang-timeout 2m \
+            --blame-hang-dump-type none \
+            2>&1 | tee ci-test.log
+          code=${PIPESTATUS[0]}
+          echo "dotnet test exit code: $code"
+          if [ "$code" != "0" ]; then
+            echo "::error ::CI backend test FAILED with exit code $code"
+          fi
+          grep -E '^[[:space:]]+Failed[[:space:]]' ci-test.log | sed 's/^[[:space:]]*//' | head -25 | while read -r line; do
+            echo "::error ::FAILED TEST: $line"
+          done
+          grep -iE '(Hang Detector|timed out|Testhost process exited with error|StackOverflow|OutOfMemory|Killed)' ci-test.log | head -8 | while read -r line; do
+            echo "::error ::CRASH MARKER: $line"
+          done
+          grep -E '(Passed!|Total tests)' ci-test.log | tail -3 | while read -r line; do
+            echo "::notice ::SUMMARY: $line"
+          done
+          exit $code
 
       - name: Test architecture boundaries
         run: >
