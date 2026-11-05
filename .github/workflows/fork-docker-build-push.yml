@@ -3,9 +3,12 @@ name: Fork Docker build and push
 # Fork-specific image build (DemianosHB/infinidysk, 1.x + preferred-audio-languages patch).
 # Builds the multi-arch image into this fork's own GHCR namespace:
 #   ghcr.io/demianoshb/infinidysk
-# Runs on demand (Actions tab -> Run workflow) or when a tag starting with "v" is pushed.
-# The default GITHUB_TOKEN is enough: packages:write is granted below and GHCR
-# trusts the repo token for packages created by this repo itself.
+# Note: GitHub only offers the manual "Run workflow" button for workflows on the
+# default branch (here: main = the 2.0 Rust rewrite), so this fork uses push
+# triggers instead:
+#   - push to feat/preferred-audio-languages -> rolling "lang-dev" image
+#   - push of a tag starting with "v"        -> versioned image (e.g. v1.7.1-lang1)
+# Both also push ":latest". GITHUB_TOKEN with packages:write is enough for GHCR.
 
 on:
   workflow_dispatch:
@@ -19,6 +22,8 @@ on:
         required: false
         default: ""
   push:
+    branches:
+      - feat/preferred-audio-languages
     tags:
       - "v*"
 
@@ -44,9 +49,15 @@ jobs:
         id: vars
         env:
           INPUT_TAG: ${{ inputs.tag || github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           set -euo pipefail
-          tag="$(echo "$INPUT_TAG" | sed 's|^v||; s|/|-|g')"
+          if [ "$REF_TYPE" = "branch" ]; then
+            # Rolling tag: branch pushes always build the current fork state.
+            tag="lang-dev"
+          else
+            tag="$(echo "$INPUT_TAG" | sed 's|^v||; s|/|-|g')"
+          fi
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
           echo "tag=v${tag}" >> "$GITHUB_OUTPUT"
           echo "version=${tag}" >> "$GITHUB_OUTPUT"
