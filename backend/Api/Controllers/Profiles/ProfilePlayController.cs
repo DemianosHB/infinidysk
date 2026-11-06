@@ -43,7 +43,8 @@ public class ProfilePlayController(
     WatchtowerStore watchtowerStore,
     WardenStore wardenStore,
     PlayResolutionCoalescer playCoalescer,
-    PreferredOrderStore preferredOrderStore
+    PreferredOrderStore preferredOrderStore,
+    SearchProfileService searchService
 ) : ControllerBase
 {
     private static readonly TimeSpan NzbFetchTimeout = TimeSpan.FromSeconds(8);
@@ -230,7 +231,18 @@ public class ProfilePlayController(
         // total attempts (maxAttempts) are exhausted, or we run out of cached candidates.
         var preferredOrder = preferredOrderStore.GetOrder(entry.ProfileToken, entry.Type, entry.Id);
         var preferSubtitles = configManager.IsPlaySubtitlePreferenceEnabled();
-        var fallbackQueue = BuildFallbackQueue(entry, preferredOrder, preferSubtitles);
+        // Fork (preferred audio languages): mirror the profile's audio-language and quality
+        // ordering into the watchdog play fallback. Search results, preflight and watchtower
+        // already order by these; without this the failover queue blindly follows the
+        // client-reported order (e.g. AIOStreams' own sorting), which can rank a
+        // better-quality foreign-language release above a preferred-language one.
+        var playProfile = searchService.GetProfile(entry.ProfileToken);
+        List<string> preferredAudioLanguages = playProfile is null
+            ? []
+            : AudioLanguagePreference.NormalizePreferred(playProfile.PreferredAudioLanguages);
+        var qualitySort = playProfile?.QualitySort ?? ProfileConfig.QualitySortMode.Off;
+        var fallbackQueue = BuildFallbackQueue(
+            entry, preferredOrder, preferSubtitles, preferredAudioLanguages, qualitySort);
         var rankIndex = new Dictionary<string, int>();
         var displayRank = 0;
         var queueIndex = 0;
@@ -319,8 +331,12 @@ public class ProfilePlayController(
             HttpContext.RequestAborted).ConfigureAwait(false);
     }
 
-    private static List<NzbResolutionCache.Candidate> BuildFallbackQueue(
-        NzbResolutionCache.Entry entry, IReadOnlyList<string>? preferredOrder, bool preferSubtitles)
+    internal static List<NzbResolutionCache.Candidate> BuildFallbackQueue(
+        NzbResolutionCache.Entry entry,
+        IReadOnlyList<string>? preferredOrder,
+        bool preferSubtitles,
+        IReadOnlyList<string>? preferredAudioLanguages = null,
+        ProfileConfig.QualitySortMode qualitySort = ProfileConfig.QualitySortMode.Off)
     {
         var primary = entry.Primary;
         var queue = new List<NzbResolutionCache.Candidate>(entry.Candidates.Count) { primary };
@@ -358,6 +374,38 @@ public class ProfilePlayController(
             orderedOthers = orderedOthers
                 .OrderByDescending(c => SubtitlePreference.Rank(c.Subs, primaryLanguages, primaryHasSubs))
                 .ToList();
+        }
+
+        // Fork (preferred audio languages): re-rank the fallbacks by the profile's
+        // audio-language preference first, then by quality (resolution, then source) —
+        // the same ordering keys the search path applies in ProfileResultSorter, so the
+        // watchdog failover walks candidates in the same direction the search results,
+        // preflight and watchtower present them in. Applied with stable OrderBy chains
+        // over the orders computed above, so subtitle preference and the client-reported
+        // (or size-proximity) order survive as tiebreaks within one language + quality
+        // tier and nothing is ever discarded. The clicked release stays first (it is
+        // added to the queue before this list). With no preferred languages configured
+        // the language tier is a no-op constant; with qualitySort Off the quality tier
+        // is a no-op constant — both preserve the previous behaviour exactly.
+        if (preferredAudioLanguages is { Count: > 0 } || qualitySort != ProfileConfig.QualitySortMode.Off)
+        {
+            var rankedOthers = orderedOthers
+                .Select(c => new
+                {
+                    Candidate = c,
+                    LanguageRank = preferredAudioLanguages is { Count: > 0 }
+                        ? AudioLanguagePreference.Rank(preferredAudioLanguages, c.Language, c.Title)
+                        : 0,
+                    Quality = qualitySort == ProfileConfig.QualitySortMode.Off
+                        ? ReleaseQualityRanks.Unknown
+                        : ReleaseQuality.Parse(c.Title),
+                })
+                .ToList();
+
+            var ordered = rankedOthers.OrderBy(x => x.LanguageRank);
+            if (qualitySort != ProfileConfig.QualitySortMode.Off)
+                ordered = ordered.ThenByDescending(x => x.Quality.Resolution).ThenByDescending(x => x.Quality.Source);
+            orderedOthers = ordered.Select(x => x.Candidate).ToList();
         }
 
         queue.AddRange(orderedOthers);
