@@ -1,6 +1,9 @@
 > [!WARNING]
 > **This is the `v1` branch: InfiniDysk 1.x in maintenance mode.** It gets bug fixes only. InfiniDysk 2.0 is a rewrite developed on [`main`](https://github.com/infinidysk/infinidysk/tree/main) and ships as a separate image. 1.x keeps `ghcr.io/infinidysk/infinidysk`. Details in [#1748](https://github.com/infinidysk/infinidysk/issues/1748).
 
+> [!NOTE]
+> **This repository is a community fork** of [infinidysk/infinidysk](https://github.com/infinidysk/infinidysk) maintained by DemianosHB. It adds a few features on top of the upstream `v1` line (see [Fork features](#fork-features-demianoshb)) and publishes its own images to `ghcr.io/demianoshb/infinidysk`. Fork releases are tagged `v1.7.1-langN`, e.g. [`v1.7.1-lang4`](https://github.com/DemianosHB/infinidysk/releases/tag/v1.7.1-lang4).
+
 > [!IMPORTANT] 
 > InfiniDysk is designed as a drop-in replacement and upgrade from `nzbdav-dev/nzbdav v0.6.4`. Follow the [migration guide](https://www.infinidysk.com/getting-started/migration/) before switching an existing installation.
 >
@@ -38,6 +41,14 @@ InfiniDysk combines a **WebDAV server** with a **SABnzbd-compatible API**. Sonar
 Please add feature requests and bug reports to the [issue tracker](https://github.com/infinidysk/infinidysk/issues), or join our [Discord](https://discord.gg/DAya7W6QMa) to chat with us.
 
 > After joining, use the channel and role selector to enable **InfiniDysk - SuperFork** for release notifications and development channels.
+
+## Fork features (DemianosHB)
+
+This fork carries a small set of additions on top of upstream `v1` (merged via [#3](https://github.com/DemianosHB/infinidysk/pull/3) and [#4](https://github.com/DemianosHB/infinidysk/pull/4), released as `v1.7.1-lang4`):
+
+- **Preferred audio languages per profile** — an ordered language list (e.g. `de, en`) configurable in Settings → Profiles. It biases search result ordering and the watchdog play fallback queue (preferred language first, then quality). It is a bias, never a filter: releases whose language cannot be detected confidently are never demoted or hidden.
+- **Optional process-wide SOCKS5 outbound proxy** — set `general.socks5-proxy` (`socks5://host:port`; `socks5h://` is accepted and normalized; ENV overlay `NZBDAV_CONFIG__GENERAL__SOCKS5_PROXY`) in Settings → General, with a "Test proxy" button. All non-local outbound traffic — NNTP provider connections and HTTP (indexers, metadata resolvers, rclone RC, Warden remote sources) — is tunneled through the proxy, e.g. a Gluetun container on the same Docker network. DNS is resolved by the proxy and TLS stays end-to-end between client and server. Loopback addresses and single-label Docker service names always connect directly, and per-indexer proxy settings keep their configured behavior. Empty or invalid values disable the proxy; the default is off.
+- **Fork images and releases** — pushes to `v1` build a rolling `lang-dev` image, and tags `v1.7.1-langN` build versioned images (multi-arch amd64/arm64), all published to `ghcr.io/demianoshb/infinidysk` (`v1.7.1-langN` plus `latest`). Upstream images remain at `ghcr.io/infinidysk/infinidysk`.
 
 ## Features
 
