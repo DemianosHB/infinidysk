@@ -2,19 +2,28 @@ import { describe, expect, it } from "vitest";
 import { getChangedConfig, isGeneralSettingsUpdated } from "./route";
 
 describe("settings change persistence", () => {
-  it.each(["general.base-url", "general.trust-proxy"])("detects a change to %s", (configKey) => {
-    const config = {
-      "general.base-url": "https://nzbdav.example.com",
-      "general.trust-proxy": "false",
-    };
+  it.each(["general.base-url", "general.trust-proxy", "general.socks5-proxy"])(
+    "detects a change to %s",
+    (configKey) => {
+      const config = {
+        "general.base-url": "https://nzbdav.example.com",
+        "general.trust-proxy": "false",
+        "general.socks5-proxy": "socks5://proxy1.example:1080",
+      };
 
-    expect(
-      isGeneralSettingsUpdated(config, {
-        ...config,
-        [configKey]: configKey === "general.base-url" ? "https://new.example.com" : "true",
-      }),
-    ).toBe(true);
-  });
+      expect(
+        isGeneralSettingsUpdated(config, {
+          ...config,
+          [configKey]:
+            configKey === "general.base-url"
+              ? "https://new.example.com"
+              : configKey === "general.socks5-proxy"
+                ? "socks5://proxy2.example:1080"
+                : "true",
+        }),
+      ).toBe(true);
+    },
+  );
 
   it("includes repair settings in the save payload", () => {
     const config = {
@@ -51,3 +60,4 @@ describe("settings change persistence", () => {
     expect(getChangedConfig(config, { ...config, ...changedRepairs })).toEqual(changedRepairs);
   });
 });
+

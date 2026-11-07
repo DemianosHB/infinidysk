@@ -79,6 +79,7 @@ import { getTrustProxyEnvironmentOverride } from "../../../server/trust-proxy-en
 const defaultConfig = {
   "general.base-url": "",
   "general.trust-proxy": "false",
+  "general.socks5-proxy": "",
   "api.key": "",
   "api.categories": "",
   "api.manual-category": "uncategorized",
@@ -322,6 +323,41 @@ function GeneralSettings({
           </div>
         </ManagedSetting>
       </SettingsCard>
+
+      <SettingsCard
+        icon="vpn_lock"
+        title="Outbound proxy"
+        description="Route outbound requests through a SOCKS5 proxy, for example a VPN container."
+      >
+        <ManagedSetting configKey="general.socks5-proxy">
+          <div className="space-y-2">
+            <label
+              className="block text-sm font-medium text-base-content"
+              htmlFor="general-socks5-proxy-input"
+            >
+              SOCKS5 proxy URL
+            </label>
+            <Input
+              className="w-full"
+              type="text"
+              id="general-socks5-proxy-input"
+              aria-describedby="general-socks5-proxy-help"
+              placeholder="socks5://gluetun:1080"
+              value={config["general.socks5-proxy"] ?? ""}
+              onChange={(e) => setNewConfig({ ...config, "general.socks5-proxy": e.target.value })}
+            />
+            <p
+              className="text-[11px] leading-relaxed text-base-content/45"
+              id="general-socks5-proxy-help"
+            >
+              Applies to Usenet connections and outbound HTTP requests (indexers, metadata lookups,
+              watchtower sources). Local destinations (loopback and single-label Docker service
+              names) and per-indexer proxy settings keep their configured behavior. DNS is resolved
+              by the proxy; changes affect new connections after saving.
+            </p>
+          </div>
+        </ManagedSetting>
+      </SettingsCard>
     </SettingsPage>
   );
 }
@@ -332,7 +368,8 @@ export function isGeneralSettingsUpdated(
 ): boolean {
   return (
     config["general.base-url"] !== newConfig["general.base-url"] ||
-    config["general.trust-proxy"] !== newConfig["general.trust-proxy"]
+    config["general.trust-proxy"] !== newConfig["general.trust-proxy"] ||
+    config["general.socks5-proxy"] !== newConfig["general.socks5-proxy"]
   );
 }
 
@@ -850,3 +887,4 @@ function useNavigationBlocker(isConfigUpdated: boolean) {
     onCancelNavigation,
   };
 }
+
