@@ -947,4 +947,3 @@ function useNavigationBlocker(isConfigUpdated: boolean) {
     onCancelNavigation,
   };
 }
-
