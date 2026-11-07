@@ -41,8 +41,17 @@ public partial class UsenetClient
                 SocketOptionLevel.Tcp,
                 SocketOptionName.TcpKeepAliveRetryCount,
                 _options.TcpKeepAliveRetryCount);
-            await _tcpClient.ConnectAsync(host, port, operationCts.Token).ConfigureAwait(false);
-            _stream = _tcpClient.GetStream();
+            if (_options.Socks5Proxy is { } socks5Proxy)
+            {
+                await _tcpClient.ConnectAsync(socks5Proxy.Host, socks5Proxy.Port, operationCts.Token).ConfigureAwait(false);
+                _stream = _tcpClient.GetStream();
+                await Socks5TunnelAsync(_stream, host, port, socks5Proxy, operationCts.Token).ConfigureAwait(false);
+            }
+            else
+            {
+                await _tcpClient.ConnectAsync(host, port, operationCts.Token).ConfigureAwait(false);
+                _stream = _tcpClient.GetStream();
+            }
 
             if (useSsl)
             {
@@ -89,3 +98,4 @@ public partial class UsenetClient
         }
     }
 }
+
