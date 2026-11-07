@@ -5,7 +5,7 @@ using System.Text;
 using UsenetSharp.Clients;
 using UsenetSharp.Exceptions;
 
-namespace UsenetSharpTest.Clients;
+namespace UsenetSharpTest.Protocol;
 
 /// <summary>
 /// ConnectAsync tests against a loopback-only fake SOCKS5 server. The fake
@@ -66,16 +66,27 @@ public class Socks5ConnectTests
             return buffer;
         }
 
-        public static async Task SendReply(NetworkStream stream, byte rep, byte atyp, ReadOnlySpan<byte> boundAddress)
+        /// <summary>
+        /// Sends a SOCKS5 CONNECT reply. For ATYP=3 (domain) the bound address is
+        /// prefixed with its length byte as required by RFC 1928 section 4.
+        /// </summary>
+        public static async Task SendReply(NetworkStream stream, byte rep, byte atyp, byte[] boundAddress)
         {
-            var reply = new byte[6 + boundAddress.Length];
+            var domain = atyp == 0x03;
+            var reply = new byte[6 + boundAddress.Length + (domain ? 1 : 0)];
             reply[0] = 5;
             reply[1] = rep;
             reply[2] = 0;
             reply[3] = atyp;
-            boundAddress.CopyTo(reply.AsSpan(4));
-            reply[4 + boundAddress.Length] = 0;
-            reply[5 + boundAddress.Length] = 0;
+            var offset = 4;
+            if (domain)
+            {
+                reply[4] = (byte)boundAddress.Length;
+                offset = 5;
+            }
+            boundAddress.CopyTo(reply.AsSpan(offset));
+            reply[offset + boundAddress.Length] = 0;
+            reply[offset + boundAddress.Length + 1] = 0;
             await stream.WriteAsync(reply);
         }
 
@@ -188,9 +199,9 @@ public class Socks5ConnectTests
                 });
                 try
                 {
-                    var exception = Assert.ThrowsAsync<Socks5ProxyException>(async () =>
+                    var exception = await Assert.ThrowsAsync<Socks5ProxyException>(async () =>
                         await client.ConnectAsync("news.example.test", 119, useSsl: false, CancellationToken.None))!;
-                    Assert.That(exception.Message, Does.Contain("rejected all offered authentication methods"));
+                    Assert.That(exception!.Message, Does.Contain("rejected all offered authentication methods"));
                 }
                 finally
                 {
@@ -228,10 +239,10 @@ public class Socks5ConnectTests
                 });
                 try
                 {
-                    var exception = Assert.ThrowsAsync<Socks5ProxyException>(async () =>
+                    var exception = await Assert.ThrowsAsync<Socks5ProxyException>(async () =>
                         await client.ConnectAsync("news.example.test", 119, useSsl: false, CancellationToken.None))!;
-                    Assert.That(exception.Message, Does.Contain("refused the connection"));
-                    Assert.That(exception.Message, Does.Contain("reply code 5"));
+                    Assert.That(exception!.Message, Does.Contain("refused the connection"));
+                    Assert.That(exception!.Message, Does.Contain("reply code 5"));
                 }
                 finally
                 {
@@ -307,9 +318,9 @@ public class Socks5ConnectTests
                 });
                 try
                 {
-                    var exception = Assert.ThrowsAsync<Socks5ProxyException>(async () =>
+                    var exception = await Assert.ThrowsAsync<Socks5ProxyException>(async () =>
                         await client.ConnectAsync("news.example.test", 563, useSsl: false, CancellationToken.None))!;
-                    Assert.That(exception.Message, Does.Contain("rejected the configured username/password credentials"));
+                    Assert.That(exception!.Message, Does.Contain("rejected the configured username/password credentials"));
                 }
                 finally
                 {

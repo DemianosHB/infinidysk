@@ -105,10 +105,10 @@ public static class OutboundProxy
             if (socks5 is not null && !IsLocalDestination(destination))
                 return socks5;
             if (fallbackToEnvironment && socks5 is null)
-                return HttpClient.DefaultProxy.GetProxy(destination);
+                return HttpClient.DefaultProxy.GetProxy(destination) ?? destination;
             return destination;
         }
 
-        public ICredentials? Credentials => null;
+        public ICredentials? Credentials { get; set; }
     }
 }

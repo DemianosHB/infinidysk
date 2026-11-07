@@ -250,6 +250,33 @@ const defaultConfig = {
   "warden.backbone-scope": "true",
 };
 
+type OutboundProxyTestResult = {
+  connected: boolean;
+  reason: string | null;
+};
+
+export async function testOutboundProxy(proxyUrl: string): Promise<OutboundProxyTestResult> {
+  const form = new FormData();
+  form.append("proxy-url", proxyUrl);
+  const response = await fetch(withUrlBase("/api/test-outbound-proxy"), {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) {
+    throw new Error(`Proxy test failed with status ${response.status}`);
+  }
+  return (await response.json()) as OutboundProxyTestResult;
+}
+
+export function formatOutboundProxyTestResult(result: OutboundProxyTestResult): string {
+  if (result.connected) {
+    return "Proxy reachable and accepting SOCKS5 connections.";
+  }
+  return result.reason && result.reason.trim() !== ""
+    ? result.reason
+    : "Could not reach the proxy.";
+}
+
 function GeneralSettings({
   config,
   setNewConfig,
@@ -257,6 +284,23 @@ function GeneralSettings({
   config: Record<string, string>;
   setNewConfig: Dispatch<SetStateAction<Record<string, string>>>;
 }) {
+  const [isTestingProxy, setIsTestingProxy] = useState(false);
+  const [proxyTestResult, setProxyTestResult] = useState<string | null>(null);
+  const proxyUrl = config["general.socks5-proxy"] ?? "";
+
+  const handleTestProxy = useCallback(async () => {
+    setIsTestingProxy(true);
+    setProxyTestResult(null);
+    try {
+      const result = await testOutboundProxy(proxyUrl);
+      setProxyTestResult(formatOutboundProxyTestResult(result));
+    } catch {
+      setProxyTestResult("Could not test the proxy. Check the URL and try again.");
+    } finally {
+      setIsTestingProxy(false);
+    }
+  }, [proxyUrl]);
+
   return (
     <SettingsPage>
       <SettingsIntro>
@@ -355,6 +399,22 @@ function GeneralSettings({
               names) and per-indexer proxy settings keep their configured behavior. DNS is resolved
               by the proxy; changes affect new connections after saving.
             </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                id="general-socks5-proxy-test-button"
+                disabled={isTestingProxy || proxyUrl.trim() === ""}
+                onClick={() => void handleTestProxy()}
+              >
+                <Icon name="network_check" className="!text-[18px]" />
+                {isTestingProxy ? "Testing..." : "Test proxy"}
+              </Button>
+              {proxyTestResult && (
+                <p role="status" className="text-[11px] leading-relaxed text-base-content/60">
+                  {proxyTestResult}
+                </p>
+              )}
+            </div>
           </div>
         </ManagedSetting>
       </SettingsCard>

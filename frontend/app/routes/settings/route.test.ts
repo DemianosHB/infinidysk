@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { getChangedConfig, isGeneralSettingsUpdated } from "./route";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  formatOutboundProxyTestResult,
+  getChangedConfig,
+  isGeneralSettingsUpdated,
+  testOutboundProxy,
+} from "./route";
 
 describe("settings change persistence", () => {
   it.each(["general.base-url", "general.trust-proxy", "general.socks5-proxy"])(
@@ -61,3 +66,69 @@ describe("settings change persistence", () => {
   });
 });
 
+
+describe("outbound proxy test helpers", () => {
+  describe("formatOutboundProxyTestResult", () => {
+    it("reports success for a connected result", () => {
+      expect(formatOutboundProxyTestResult({ connected: true, reason: null })).toBe(
+        "Proxy reachable and accepting SOCKS5 connections.",
+      );
+    });
+
+    it("uses the server-provided reason when the proxy is not reachable", () => {
+      expect(
+        formatOutboundProxyTestResult({
+          connected: false,
+          reason: "The connection attempt timed out after 5 seconds.",
+        }),
+      ).toBe("The connection attempt timed out after 5 seconds.");
+    });
+
+    it("falls back to a generic message when no usable reason is provided", () => {
+      expect(formatOutboundProxyTestResult({ connected: false, reason: null })).toBe(
+        "Could not reach the proxy.",
+      );
+      expect(formatOutboundProxyTestResult({ connected: false, reason: "  " })).toBe(
+        "Could not reach the proxy.",
+      );
+    });
+  });
+
+  describe("testOutboundProxy", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("posts the proxy URL to the outbound proxy test endpoint", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ connected: true, reason: null }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(testOutboundProxy("socks5://gluetun:1080")).resolves.toEqual({
+        connected: true,
+        reason: null,
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain("/api/test-outbound-proxy");
+      expect(options.method).toBe("POST");
+      expect(options.body).toBeInstanceOf(FormData);
+      expect((options.body as FormData).get("proxy-url")).toBe("socks5://gluetun:1080");
+    });
+
+    it("rejects when the backend rejects the proxy URL", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({}) }),
+      );
+
+      await expect(testOutboundProxy("not a url")).rejects.toThrow(
+        "Proxy test failed with status 400",
+      );
+    });
+  });
+});
