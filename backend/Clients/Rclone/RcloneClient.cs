@@ -18,6 +18,12 @@ namespace NzbWebDAV.Clients.Rclone;
 public sealed class RcloneClient : IRcloneClient, IDisposable
 {
     internal static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
+
+    // Process-lifetime handler shared by the static client below; reads the
+    // current general.socks5-proxy state per connection. Not disposed by the
+    // client, which lives for the whole process anyway.
+    private static readonly SocketsHttpHandler SharedHandler = OutboundProxy.CreateHandler();
+
     private static readonly HttpClient HttpClient = CreateHttpClient();
     private ForgetErrorEntry? _lastForgetError;
     private readonly ConfigManager _configManager;
@@ -48,11 +54,6 @@ public sealed class RcloneClient : IRcloneClient, IDisposable
     private string? User { get; set; }
     private string? Pass { get; set; }
     public bool IsRemoteControlEnabled { get; private set; }
-
-    // Process-lifetime handler shared by the static client below; reads the
-    // current general.socks5-proxy state per connection. Not disposed by the
-    // client, which lives for the whole process anyway.
-    private static readonly SocketsHttpHandler SharedHandler = OutboundProxy.CreateHandler();
 
     private static HttpClient CreateHttpClient() =>
         new(SharedHandler, disposeHandler: false) { Timeout = RequestTimeout };
