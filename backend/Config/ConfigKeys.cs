@@ -136,6 +136,7 @@ public static class ConfigKeys
     // general / db / maintenance
     public const string GeneralBaseUrl = "general.base-url";
     public const string GeneralTrustProxy = "general.trust-proxy";
+    public const string GeneralSocks5Proxy = "general.socks5-proxy";
     public const string DbIsStartupVacuumEnabled = "db.is-startup-vacuum-enabled";
     public const string MaintenanceRemoveOrphanedScheduleEnabled = "maintenance.remove-orphaned-schedule-enabled";
     public const string MaintenanceRemoveOrphanedScheduleTime = "maintenance.remove-orphaned-schedule-time";
@@ -242,3 +243,4 @@ public static class ConfigKeys
     public const string DatabaseHistoryRetentionDays = "database.history-retention-days";
     public const string MetricsFetchRetentionHours = "metrics.fetch-retention-hours";
 }
+

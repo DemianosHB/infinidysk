@@ -13,6 +13,7 @@ using NzbWebDAV.Models;
 using NzbWebDAV.Streams;
 using NzbWebDAV.Utils;
 using Serilog;
+using UsenetSharp.Clients;
 
 namespace NzbWebDAV.Config;
 
@@ -109,6 +110,7 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
         }
         lock (_excludeLock) { _compiledExcludeCache = null; }
         SyncPathSanitizer();
+        SyncOutboundProxy();
     }
 
     /// <summary>
@@ -147,6 +149,7 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
         }
         lock (_excludeLock) { _compiledExcludeCache = null; }
         SyncPathSanitizer();
+        SyncOutboundProxy();
 
         if (changedConfig is not null)
         {
@@ -411,6 +414,7 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
 
         if (changedConfig.ContainsKey(ConfigKeys.WebdavWindowsSafePaths))
             SyncPathSanitizer();
+        SyncOutboundProxy();
 
         var args = new ConfigEventArgs { ChangedConfig = changedConfig };
         var subscribers = OnConfigChanged;
@@ -431,6 +435,14 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
 
     private void SyncPathSanitizer() =>
         PathSanitizer.SetWindowsSafePathsEnabled(IsWindowsSafePathsEnabled());
+
+    /// <summary>
+    /// Publishes the current <c>general.socks5-proxy</c> value to
+    /// <see cref="Utils.OutboundProxy"/> so all outbound HTTP and NNTP connections
+    /// route through it without restarting. Empty or invalid values clear it.
+    /// </summary>
+    private void SyncOutboundProxy() =>
+        OutboundProxy.Update(GetConfigValue(ConfigKeys.GeneralSocks5Proxy));
 
     // Get-only computed properties are serialized by default and count as mapped,
     // so JsonSerializer.Serialize output for these types round-trips unchanged.
@@ -601,6 +613,10 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
                 case ConfigKeys.GeneralBaseUrl:
                 case ConfigKeys.ProwlarrUrl:
                     RequireHttpUrl(item.ConfigName, value);
+                    break;
+
+                case ConfigKeys.GeneralSocks5Proxy:
+                    RequireSocks5ProxyUrl(item.ConfigName, value);
                     break;
 
                 case ConfigKeys.ApiEnsureImportableVideo:
@@ -789,6 +805,13 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
                 || !string.IsNullOrEmpty(uri.UserInfo))
                 throw new ArgumentException(
                     $"Config value for '{key}' must be an absolute http(s) URL without credentials, query, or fragment.");
+        }
+
+        void RequireSocks5ProxyUrl(string key, string value)
+        {
+            if (OutboundProxy.TryParseSocks5Url(value) is null)
+                throw new ArgumentException(
+                    $"Config value for '{key}' must be a socks5://host:port URL (socks5h:// is accepted) without credentials, query, or fragment.");
         }
 
         void RequireBool(string key, string value)
@@ -2526,6 +2549,26 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
         return GetConfigValue(ConfigKeys.GeneralBaseUrl) ?? "http://localhost:3000";
     }
 
+    /// <summary>Returns the raw socks5:// proxy URL or null when unset/invalid.</summary>
+    public string? GetSocks5ProxyUrl()
+    {
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.GeneralSocks5Proxy));
+        return configValue == null ? null : OutboundProxy.TryParseSocks5Url(configValue)?.ToString();
+    }
+
+    /// <summary>
+    /// The SOCKS5 proxy endpoint NNTP provider connections are tunneled through,
+    /// or null when unset/invalid. Host names are resolved by the proxy.
+    /// </summary>
+    public Socks5ProxyEndpoint? GetUsenetSocks5Proxy()
+    {
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.GeneralSocks5Proxy));
+        if (configValue == null)
+            return null;
+        var uri = OutboundProxy.TryParseSocks5Url(configValue);
+        return uri is null ? null : new Socks5ProxyEndpoint(uri.Host, uri.Port);
+    }
+
     public bool IsRcloneRemoteControlEnabled()
     {
         var defaultValue = false;
@@ -2716,3 +2759,4 @@ public sealed class ConfigUnmappedPropertyException(string configName, string js
 {
     public string JsonPath { get; } = jsonPath;
 }
+

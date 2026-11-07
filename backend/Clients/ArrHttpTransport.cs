@@ -1,4 +1,5 @@
 using System.Net;
+using NzbWebDAV.Utils;
 
 namespace NzbWebDAV.Clients;
 
@@ -6,7 +7,9 @@ namespace NzbWebDAV.Clients;
 /// Shared transport for Radarr/Sonarr/Prowlarr management API calls. Single-label
 /// hostnames (Docker service names such as <c>sonarr</c>) always connect directly,
 /// even when a process-wide proxy is configured; every other destination keeps the
-/// default proxy policy, including NO_PROXY rules and proxy credentials.
+/// default proxy policy, including NO_PROXY rules and proxy credentials. When the
+/// <c>general.socks5-proxy</c> setting is configured, non-local destinations route
+/// through that SOCKS5 proxy instead of the environment proxy policy.
 /// </summary>
 public static class ArrHttpTransport
 {
@@ -18,6 +21,9 @@ public static class ArrHttpTransport
     {
         PooledConnectionLifetime = PooledConnectionLifetime,
         UseProxy = useProxy,
+        // Reads the current general.socks5-proxy state per connection; falls back
+        // to HttpClient.DefaultProxy (environment policy) while unconfigured.
+        Proxy = OutboundProxy.WebProxy,
         AllowAutoRedirect = false,
     };
 
@@ -105,3 +111,4 @@ public static class ArrHttpTransport
         }
     }
 }
+

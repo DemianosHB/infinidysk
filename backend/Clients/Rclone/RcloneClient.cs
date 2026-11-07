@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using NzbWebDAV.Clients.Rclone.Models;
 using NzbWebDAV.Config;
 using NzbWebDAV.Extensions;
+using NzbWebDAV.Utils;
 using Serilog;
 
 namespace NzbWebDAV.Clients.Rclone;
@@ -48,7 +49,7 @@ public sealed class RcloneClient : IRcloneClient, IDisposable
     private string? Pass { get; set; }
     public bool IsRemoteControlEnabled { get; private set; }
 
-    private static HttpClient CreateHttpClient() => new() { Timeout = RequestTimeout };
+    private static HttpClient CreateHttpClient() => new(OutboundProxy.CreateHandler()) { Timeout = RequestTimeout };
 
     public RcloneClient(ConfigManager configManager)
     {
@@ -386,3 +387,4 @@ public sealed class RcloneClient : IRcloneClient, IDisposable
         public DateTimeOffset At { get; } = at;
     }
 }
+

@@ -18,7 +18,8 @@ public class TestUsenetConnectionController(ConfigManager configManager) : BaseA
             using var connection = await UsenetStreamingClient.CreateNewConnection(
                 request.ToConnectionDetails(),
                 configManager.GetNntpReadTimeout(),
-                HttpContext.RequestAborted).ConfigureAwait(false);
+                HttpContext.RequestAborted,
+                socks5Proxy: configManager.GetUsenetSocks5Proxy()).ConfigureAwait(false);
             return new TestUsenetConnectionResponse { Status = true, Connected = true };
         }
         catch (CouldNotConnectToUsenetException e)

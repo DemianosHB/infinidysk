@@ -31,7 +31,7 @@ public sealed class SearchExcludeSyncService : BackgroundService
     private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(15);
 
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private static readonly HttpClient Http = new(OutboundProxy.CreateHandler()) { Timeout = TimeSpan.FromSeconds(15) };
 
     private readonly ConfigManager _configManager;
     private readonly IDbContextFactory<DavDatabaseContext>? _dbContextFactory;
@@ -290,3 +290,4 @@ public sealed record ExcludeSyncStatus(
     long? FetchedAt,
     long? LastChecked,
     string? Error);
+
