@@ -66,7 +66,6 @@ describe("settings change persistence", () => {
   });
 });
 
-
 describe("outbound proxy test helpers", () => {
   describe("formatOutboundProxyTestResult", () => {
     it("reports success for a connected result", () => {
@@ -103,7 +102,7 @@ describe("outbound proxy test helpers", () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: async () => ({ connected: true, reason: null }),
+        json: () => ({ connected: true, reason: null }),
       });
       vi.stubGlobal("fetch", fetchMock);
 
@@ -123,7 +122,7 @@ describe("outbound proxy test helpers", () => {
     it("rejects when the backend rejects the proxy URL", async () => {
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({}) }),
+        vi.fn().mockResolvedValue({ ok: false, status: 400, json: () => ({}) }),
       );
 
       await expect(testOutboundProxy("not a url")).rejects.toThrow(

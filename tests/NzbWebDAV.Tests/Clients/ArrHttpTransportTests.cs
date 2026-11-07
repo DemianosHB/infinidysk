@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using NzbWebDAV.Clients;
+using NzbWebDAV.Utils;
 
 namespace NzbWebDAV.Tests.Clients;
 
@@ -48,12 +49,14 @@ public class ArrHttpTransportTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void CreateSocketHandler_PreservesNativeProxyPolicy_AndBoundedConnectionLifetime(bool useProxy)
+    public void CreateSocketHandler_PinsOutboundProxy_AndBoundedConnectionLifetime(bool useProxy)
     {
         using var handler = ArrHttpTransport.CreateSocketHandler(useProxy);
 
         Assert.Equal(useProxy, handler.UseProxy);
-        Assert.Null(handler.Proxy);
+        // The shared outbound proxy keeps the native environment policy while
+        // no SOCKS5 proxy is configured and routes through it when one is.
+        Assert.Same(OutboundProxy.WebProxy, handler.Proxy);
         Assert.False(handler.AllowAutoRedirect);
         Assert.Equal(TimeSpan.FromMinutes(2), handler.PooledConnectionLifetime);
     }

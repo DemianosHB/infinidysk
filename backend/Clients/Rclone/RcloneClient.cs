@@ -49,7 +49,13 @@ public sealed class RcloneClient : IRcloneClient, IDisposable
     private string? Pass { get; set; }
     public bool IsRemoteControlEnabled { get; private set; }
 
-    private static HttpClient CreateHttpClient() => new(OutboundProxy.CreateHandler()) { Timeout = RequestTimeout };
+    // Process-lifetime handler shared by the static client below; reads the
+    // current general.socks5-proxy state per connection. Not disposed by the
+    // client, which lives for the whole process anyway.
+    private static readonly SocketsHttpHandler SharedHandler = OutboundProxy.CreateHandler();
+
+    private static HttpClient CreateHttpClient() =>
+        new(SharedHandler, disposeHandler: false) { Timeout = RequestTimeout };
 
     public RcloneClient(ConfigManager configManager)
     {
