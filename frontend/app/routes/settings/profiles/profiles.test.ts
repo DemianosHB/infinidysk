@@ -1,4 +1,4 @@
-successfully downloaded text file (SHA: e71fd8d01bf5dd388515e5b1d1e91c12dba2267c)// @vitest-environment jsdom
+// @vitest-environment jsdom
 /* global HTMLSelectElement */
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
