@@ -460,9 +460,7 @@ function ProfileForm({ profile, index, availableIndexers, onChange, onRemove }: 
         <Field>
           <Label htmlFor={`profile-preferred-audio-${profile.Token}`}>
             Preferred audio languages{" "}
-            <span className="font-normal text-base-content/60">
-              (ordered, e.g. de then en)
-            </span>
+            <span className="font-normal text-base-content/60">(ordered, e.g. de then en)</span>
           </Label>
           <TagInput
             id={`profile-preferred-audio-${profile.Token}`}
