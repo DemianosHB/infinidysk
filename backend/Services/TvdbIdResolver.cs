@@ -1,13 +1,14 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
+using NzbWebDAV.Utils;
 using Serilog;
 
 namespace NzbWebDAV.Services;
 
 public class TvdbIdResolver
 {
-    private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(6) };
+    private static readonly HttpClient HttpClient = new(OutboundProxy.CreateHandler()) { Timeout = TimeSpan.FromSeconds(6) };
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
     private static readonly TimeSpan NegativeTtl = TimeSpan.FromMinutes(15);
 
@@ -230,3 +231,4 @@ public class TvdbIdResolver
 
     private sealed record CacheEntry(int? TvdbId, DateTimeOffset ExpiresAt);
 }
+

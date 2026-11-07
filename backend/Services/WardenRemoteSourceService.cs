@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Net;
 using Microsoft.Extensions.Hosting;
+using NzbWebDAV.Utils;
 using Serilog;
 
 namespace NzbWebDAV.Services;
@@ -9,7 +10,13 @@ public class WardenRemoteSourceService : BackgroundService
 {
     private const long MaxDownloadBytes = 256L * 1024 * 1024;
 
-    private static readonly HttpClient Http = new(new HttpClientHandler { AutomaticDecompression = DecompressionMethods.None, CheckCertificateRevocationList = true })
+    private static readonly HttpClient Http = new(new HttpClientHandler
+    {
+        AutomaticDecompression = DecompressionMethods.None,
+        CheckCertificateRevocationList = true,
+        Proxy = OutboundProxy.WebProxy,
+        UseProxy = true,
+    })
     {
         Timeout = TimeSpan.FromSeconds(90),
     };
@@ -117,3 +124,4 @@ public class WardenRemoteSourceService : BackgroundService
         return isGz;
     }
 }
+

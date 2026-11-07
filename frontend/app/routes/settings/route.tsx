@@ -79,6 +79,7 @@ import { getTrustProxyEnvironmentOverride } from "../../../server/trust-proxy-en
 const defaultConfig = {
   "general.base-url": "",
   "general.trust-proxy": "false",
+  "general.socks5-proxy": "",
   "api.key": "",
   "api.categories": "",
   "api.manual-category": "uncategorized",
@@ -249,6 +250,33 @@ const defaultConfig = {
   "warden.backbone-scope": "true",
 };
 
+type OutboundProxyTestResult = {
+  connected: boolean;
+  reason: string | null;
+};
+
+export async function testOutboundProxy(proxyUrl: string): Promise<OutboundProxyTestResult> {
+  const form = new FormData();
+  form.append("proxy-url", proxyUrl);
+  const response = await fetch(withUrlBase("/api/test-outbound-proxy"), {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) {
+    throw new Error(`Proxy test failed with status ${response.status}`);
+  }
+  return (await response.json()) as OutboundProxyTestResult;
+}
+
+export function formatOutboundProxyTestResult(result: OutboundProxyTestResult): string {
+  if (result.connected) {
+    return "Proxy reachable and accepting SOCKS5 connections.";
+  }
+  return result.reason && result.reason.trim() !== ""
+    ? result.reason
+    : "Could not reach the proxy.";
+}
+
 function GeneralSettings({
   config,
   setNewConfig,
@@ -256,6 +284,23 @@ function GeneralSettings({
   config: Record<string, string>;
   setNewConfig: Dispatch<SetStateAction<Record<string, string>>>;
 }) {
+  const [isTestingProxy, setIsTestingProxy] = useState(false);
+  const [proxyTestResult, setProxyTestResult] = useState<string | null>(null);
+  const proxyUrl = config["general.socks5-proxy"] ?? "";
+
+  const handleTestProxy = useCallback(async () => {
+    setIsTestingProxy(true);
+    setProxyTestResult(null);
+    try {
+      const result = await testOutboundProxy(proxyUrl);
+      setProxyTestResult(formatOutboundProxyTestResult(result));
+    } catch {
+      setProxyTestResult("Could not test the proxy. Check the URL and try again.");
+    } finally {
+      setIsTestingProxy(false);
+    }
+  }, [proxyUrl]);
+
   return (
     <SettingsPage>
       <SettingsIntro>
@@ -322,6 +367,57 @@ function GeneralSettings({
           </div>
         </ManagedSetting>
       </SettingsCard>
+
+      <SettingsCard
+        icon="vpn_lock"
+        title="Outbound proxy"
+        description="Route outbound requests through a SOCKS5 proxy, for example a VPN container."
+      >
+        <ManagedSetting configKey="general.socks5-proxy">
+          <div className="space-y-2">
+            <label
+              className="block text-sm font-medium text-base-content"
+              htmlFor="general-socks5-proxy-input"
+            >
+              SOCKS5 proxy URL
+            </label>
+            <Input
+              className="w-full"
+              type="text"
+              id="general-socks5-proxy-input"
+              aria-describedby="general-socks5-proxy-help"
+              placeholder="socks5://gluetun:1080"
+              value={config["general.socks5-proxy"] ?? ""}
+              onChange={(e) => setNewConfig({ ...config, "general.socks5-proxy": e.target.value })}
+            />
+            <p
+              className="text-[11px] leading-relaxed text-base-content/45"
+              id="general-socks5-proxy-help"
+            >
+              Applies to Usenet connections and outbound HTTP requests (indexers, metadata lookups,
+              watchtower sources). Local destinations (loopback and single-label Docker service
+              names) and per-indexer proxy settings keep their configured behavior. DNS is resolved
+              by the proxy; changes affect new connections after saving.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                id="general-socks5-proxy-test-button"
+                disabled={isTestingProxy || proxyUrl.trim() === ""}
+                onClick={() => void handleTestProxy()}
+              >
+                <Icon name="network_check" className="!text-[18px]" />
+                {isTestingProxy ? "Testing..." : "Test proxy"}
+              </Button>
+              {proxyTestResult && (
+                <p role="status" className="text-[11px] leading-relaxed text-base-content/60">
+                  {proxyTestResult}
+                </p>
+              )}
+            </div>
+          </div>
+        </ManagedSetting>
+      </SettingsCard>
     </SettingsPage>
   );
 }
@@ -332,7 +428,8 @@ export function isGeneralSettingsUpdated(
 ): boolean {
   return (
     config["general.base-url"] !== newConfig["general.base-url"] ||
-    config["general.trust-proxy"] !== newConfig["general.trust-proxy"]
+    config["general.trust-proxy"] !== newConfig["general.trust-proxy"] ||
+    config["general.socks5-proxy"] !== newConfig["general.socks5-proxy"]
   );
 }
 

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
+using NzbWebDAV.Utils;
 using Serilog;
 
 namespace NzbWebDAV.Services;
@@ -9,7 +10,7 @@ public sealed record ResolvedTitleMetadata(string Title, int? Year);
 
 public class ImdbTitleResolver
 {
-    private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(6) };
+    private static readonly HttpClient HttpClient = new(OutboundProxy.CreateHandler()) { Timeout = TimeSpan.FromSeconds(6) };
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
     private static readonly TimeSpan NegativeTtl = TimeSpan.FromMinutes(15);
 
@@ -178,3 +179,4 @@ public class ImdbTitleResolver
 
     private sealed record CacheEntry(ResolvedTitleMetadata? Metadata, DateTimeOffset ExpiresAt);
 }
+

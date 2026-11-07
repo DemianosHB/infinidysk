@@ -14,6 +14,7 @@ using NzbWebDAV.Services.Repair;
 using NzbWebDAV.Services.StreamTrace;
 using NzbWebDAV.Websocket;
 using Serilog;
+using UsenetSharp.Clients;
 
 namespace NzbWebDAV.Clients.Usenet;
 
@@ -51,15 +52,17 @@ public class UsenetStreamingClient : WrappingNntpClient
             var providersChanged = configEventArgs.ChangedConfig.ContainsKey(ConfigKeys.UsenetProviders);
             var streamingPriorityChanged =
                 configEventArgs.ChangedConfig.ContainsKey(ConfigKeys.UsenetStreamingPriority);
+            var socks5ProxyChanged =
+                configEventArgs.ChangedConfig.ContainsKey(ConfigKeys.GeneralSocks5Proxy);
 
             // if unrelated config changed, do nothing
-            if (!providersChanged && !streamingPriorityChanged) return;
+            if (!providersChanged && !streamingPriorityChanged && !socks5ProxyChanged) return;
 
             lock (_configChangeLock)
             {
                 try
                 {
-                    if (providersChanged)
+                    if (providersChanged || socks5ProxyChanged)
                     {
                         // update the connection-pool according to the new config. New pools are
                         // built with the current odds, so a save that changes both needs no
@@ -232,6 +235,7 @@ public class UsenetStreamingClient : WrappingNntpClient
     {
         var providerSnapshot = configManager.GetUsenetProviderSnapshot();
         var providerConfig = providerSnapshot.Providers;
+        var socks5Proxy = configManager.GetUsenetSocks5Proxy();
 
         var connectionPoolStats = new ConnectionPoolStats(providerConfig, websocketManager);
         var idleTimeoutSeconds = configManager.GetIdleConnectionTimeoutSeconds();
@@ -256,7 +260,8 @@ public class UsenetStreamingClient : WrappingNntpClient
                 streamingPriority,
                 latencyTracker,
                 tripDetector,
-                bytesTracker
+                bytesTracker,
+                socks5Proxy
             ))
             .ToList();
         return new MultiProviderNntpClient(
@@ -300,7 +305,8 @@ public class UsenetStreamingClient : WrappingNntpClient
         SemaphorePriorityOdds? streamingPriority = null,
         ProviderLatencyTracker? latencyTracker = null,
         CorrelatedTripDetector? tripDetector = null,
-        ProviderBytesTracker? bytesTracker = null
+        ProviderBytesTracker? bytesTracker = null,
+        Socks5ProxyEndpoint? socks5Proxy = null
     )
     {
         var maxConnections = connectionDetails.MaxConnections;
@@ -372,7 +378,8 @@ public class UsenetStreamingClient : WrappingNntpClient
                 nntpReadTimeout,
                 ct,
                 onPayloadBytes: bytes => bytesTracker?.Add(
-                    UsenetProviderIdentity.MetricsKey(connectionDetails), bytes)),
+                    UsenetProviderIdentity.MetricsKey(connectionDetails), bytes),
+                socks5Proxy: socks5Proxy),
             onConnectionPoolChanged,
             idleTimeoutSeconds,
             warmConnectionFloor,
@@ -548,14 +555,16 @@ public class UsenetStreamingClient : WrappingNntpClient
         TimeSpan readTimeout,
         CancellationToken ct,
         bool applyBandwidthLimit = true,
-        Action<int>? onPayloadBytes = null
+        Action<int>? onPayloadBytes = null,
+        Socks5ProxyEndpoint? socks5Proxy = null
     ) => CreateNewConnection(
         connectionDetails,
         () => new BaseNntpClient(
             connectionDetails.UseSsl && connectionDetails.SkipTlsVerification,
             readTimeout,
             applyBandwidthLimit,
-            onPayloadBytes),
+            onPayloadBytes,
+            socks5Proxy),
         ct);
 
     internal static async ValueTask<INntpClient> CreateNewConnection
@@ -637,3 +646,4 @@ public class UsenetStreamingClient : WrappingNntpClient
             !string.IsNullOrEmpty(s) && s.Any(c => c <= 0x20 || c == 0x7F);
     }
 }
+

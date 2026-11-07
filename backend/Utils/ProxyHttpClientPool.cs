@@ -42,7 +42,11 @@ public static class ProxyHttpClientPool
             }
             else
             {
-                handler.UseProxy = false;
+                // No per-indexer proxy: honor the global socks5-proxy setting when
+                // configured (non-local destinations only), and otherwise keep a
+                // strict direct connection rather than the environment proxy policy.
+                handler.Proxy = OutboundProxy.StrictWebProxy;
+                handler.UseProxy = true;
                 handler.ConnectCallback = KeepAliveConnectAsync;
             }
 
@@ -138,3 +142,4 @@ public static class ProxyHttpClientPool
         return uri.ToString();
     }
 }
+

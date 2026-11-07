@@ -1,12 +1,13 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using NzbWebDAV.Utils;
 using Serilog;
 
 namespace NzbWebDAV.Services;
 
 public class ExternalIdResolver(AnimeListMappingResolver animeList)
 {
-    private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(10) };
+    private static readonly HttpClient HttpClient = new(OutboundProxy.CreateHandler()) { Timeout = TimeSpan.FromSeconds(10) };
     private const string KitsuBase = "https://kitsu.io/api/edge";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
     private static readonly TimeSpan NegativeTtl = TimeSpan.FromMinutes(15);
@@ -173,3 +174,4 @@ public class ExternalIdResolver(AnimeListMappingResolver animeList)
 
     private sealed record CacheEntry(IdMapping? Mapping, DateTimeOffset ExpiresAt);
 }
+

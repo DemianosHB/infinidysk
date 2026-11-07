@@ -156,6 +156,20 @@ public sealed record UsenetClientOptions
         X509RevocationMode.NoCheck;
 
     /// <summary>
+    /// Gets the optional SOCKS5 proxy that NNTP connections are tunneled through.
+    /// </summary>
+    /// <remarks>
+    /// When set, <see cref="UsenetClient.ConnectAsync"/> first establishes a TCP
+    /// connection to the proxy (RFC 1928) and performs the CONNECT handshake before
+    /// any NNTP traffic. Host names are sent as SOCKS5 domain addresses, so DNS
+    /// resolution happens on the proxy (socks5h semantics). TLS is layered on top
+    /// of the tunnel and remains end-to-end between the client and the NNTP server.
+    /// Username/password authentication (RFC 1929) is offered when the endpoint
+    /// carries credentials.
+    /// </remarks>
+    public Socks5ProxyEndpoint? Socks5Proxy { get; init; }
+
+    /// <summary>
     /// Gets whether TLS certificate chain and hostname validation is bypassed.
     /// </summary>
     /// <remarks>
@@ -167,3 +181,4 @@ public sealed record UsenetClientOptions
     /// </remarks>
     public bool SkipTlsVerification { get; init; }
 }
+

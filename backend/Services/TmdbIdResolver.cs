@@ -1,11 +1,12 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using NzbWebDAV.Utils;
 
 namespace NzbWebDAV.Services;
 
 public class TmdbIdResolver
 {
-    private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(6) };
+    private static readonly HttpClient HttpClient = new(OutboundProxy.CreateHandler()) { Timeout = TimeSpan.FromSeconds(6) };
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
     private static readonly TimeSpan NegativeTtl = TimeSpan.FromMinutes(15);
 
@@ -58,3 +59,4 @@ public class TmdbIdResolver
 
     private sealed record CacheEntry(string? ImdbId, DateTimeOffset ExpiresAt);
 }
+

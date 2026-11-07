@@ -38,7 +38,8 @@ public class BaseNntpClient : NntpClient
         bool skipTlsVerification,
         TimeSpan? readTimeout = null,
         bool applyBandwidthLimit = true,
-        Action<int>? payloadBytesObserver = null)
+        Action<int>? payloadBytesObserver = null,
+        Socks5ProxyEndpoint? socks5Proxy = null)
         : this(new UsenetClient(new UsenetClientOptions
 #pragma warning restore CA2000
         {
@@ -47,6 +48,7 @@ public class BaseNntpClient : NntpClient
             : YencCrcValidationMode.WhenPresent,
             SkipTlsVerification = skipTlsVerification,
             ReadTimeout = readTimeout ?? TimeSpan.FromSeconds(30),
+            Socks5Proxy = socks5Proxy,
             DecodedBodyBufferedBytesObserver = static delta =>
                 InFlightArticleBudget.Current?.AccountBufferedPipeBytes(delta),
             PayloadBandwidthAcquirer = applyBandwidthLimit
@@ -329,3 +331,4 @@ public class BaseNntpClient : NntpClient
         GC.SuppressFinalize(this);
     }
 }
+
