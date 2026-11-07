@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { MultiCheckboxInput } from "~/components/multi-checkbox-input/multi-checkbox-input";
+import { TagInput } from "~/components/tag-input/tag-input";
 import {
   Button,
   Field,
@@ -37,6 +38,7 @@ interface Profile {
   IndexerNames: string[];
   EnabledAdapters?: string[] | null;
   QualitySort?: QualitySortMode;
+  PreferredAudioLanguages?: string[] | null;
   MovieFallback?: FallbackMode;
   TvFallback?: FallbackMode;
   MovieFallbackMinResults?: number;
@@ -143,6 +145,7 @@ export function ProfilesSettings({ config, setNewConfig }: ProfilesSettingsProps
           IndexerNames: [],
           EnabledAdapters: [...ALL_ADAPTER_KEYS],
           QualitySort: "Off",
+          PreferredAudioLanguages: null,
           MovieFallback: "Off",
           TvFallback: "Off",
           MovieFallbackMinResults: 3,
@@ -452,6 +455,32 @@ function ProfileForm({ profile, index, availableIndexers, onChange, onRemove }: 
           <p className="mb-0 mt-1 text-[11px] leading-relaxed text-base-content/45">
             Quality sorting is opt-in. Existing profiles keep grabs, size, and posted-date order
             until you enable a mode. Resolution always ranks above source.
+          </p>
+        </Field>
+        <Field>
+          <Label htmlFor={`profile-preferred-audio-${profile.Token}`}>
+            Preferred audio languages{" "}
+            <span className="font-normal text-base-content/60">(ordered, e.g. de then en)</span>
+          </Label>
+          <TagInput
+            id={`profile-preferred-audio-${profile.Token}`}
+            className="mb-2"
+            placeholder="e.g. de, en"
+            value={(profile.PreferredAudioLanguages ?? []).join(", ")}
+            onChange={(v) => {
+              const languages = v
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean);
+              onChange(index, {
+                PreferredAudioLanguages: languages.length > 0 ? languages : null,
+              });
+            }}
+          />
+          <p className="mb-0 mt-1 text-[11px] leading-relaxed text-base-content/45">
+            Releases whose audio language matches an earlier entry rank first; ties fall through to
+            the result ordering above. Languages that cannot be detected confidently are never
+            demoted, they merely get no boost. Leave empty to disable the bias (default).
           </p>
         </Field>
         <Field>

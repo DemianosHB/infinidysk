@@ -51,3 +51,25 @@ describe("ProfilesSettings result ordering", () => {
     );
   });
 });
+describe("ProfilesSettings preferred audio languages", () => {
+  it("writes an ordered list from the tag input and clears back to null", async () => {
+    const onConfigChange = vi.fn<(config: Record<string, string>) => void>();
+    const user = userEvent.setup();
+    render(createElement(ProfilesHarness, { onConfigChange }));
+
+    const input = screen.getByLabelText<HTMLInputElement>(/Preferred audio languages/);
+    await user.type(input, "de,");
+    await user.type(input, "en{enter}");
+
+    expect(onConfigChange.mock.lastCall?.[0]?.["profiles.instances"]).toContain(
+      '"PreferredAudioLanguages":["de","en"]',
+    );
+
+    await user.click(screen.getByRole("button", { name: "Remove de" }));
+    await user.click(screen.getByRole("button", { name: "Remove en" }));
+
+    expect(onConfigChange.mock.lastCall?.[0]?.["profiles.instances"]).toContain(
+      '"PreferredAudioLanguages":null',
+    );
+  });
+});
