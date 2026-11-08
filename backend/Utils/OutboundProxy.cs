@@ -136,7 +136,9 @@ public static class OutboundProxy
         public Uri GetProxy(Uri destination)
         {
             var socks5 = _socks5Uri;
-            if (socks5 is not null && !IsBypassed(destination))
+            // Qualified: this class's own IWebProxy.IsBypassed(Uri) would shadow the
+            // static routing check and always report "not bypassed".
+            if (socks5 is not null && !OutboundProxy.IsBypassed(destination))
                 return socks5;
             if (fallbackToEnvironment && socks5 is null)
                 return HttpClient.DefaultProxy.GetProxy(destination) ?? destination;
