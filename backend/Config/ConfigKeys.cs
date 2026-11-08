@@ -137,6 +137,7 @@ public static class ConfigKeys
     public const string GeneralBaseUrl = "general.base-url";
     public const string GeneralTrustProxy = "general.trust-proxy";
     public const string GeneralSocks5Proxy = "general.socks5-proxy";
+    public const string GeneralSocks5ProxyBypass = "general.socks5-proxy-bypass";
     public const string DbIsStartupVacuumEnabled = "db.is-startup-vacuum-enabled";
     public const string MaintenanceRemoveOrphanedScheduleEnabled = "maintenance.remove-orphaned-schedule-enabled";
     public const string MaintenanceRemoveOrphanedScheduleTime = "maintenance.remove-orphaned-schedule-time";

@@ -9,19 +9,24 @@ namespace NzbWebDAV.Utils;
 /// <remarks>
 /// All outbound HTTP clients and NNTP connections consult this state. Local
 /// destinations (loopback and single-label Docker service names) always connect
-/// directly so a proxy on the same Docker network remains reachable. Handlers read
-/// the proxy per connection, so configuration changes apply to new connections
+/// directly so a proxy on the same Docker network remains reachable, and so do the
+/// destinations listed in <c>general.socks5-proxy-bypass</c>. Handlers read the
+/// proxy per connection, so configuration changes apply to new connections
 /// without rebuilding cached clients.
 /// </remarks>
 public static class OutboundProxy
 {
     private static volatile Uri? _socks5Uri;
+    private static volatile ProxyBypassMatcher _bypass = ProxyBypassMatcher.Empty;
 
     /// <summary>True when a SOCKS5 proxy URL is currently configured.</summary>
     public static bool IsConfigured => _socks5Uri is not null;
 
     /// <summary>The normalized <c>socks5://host:port</c> proxy URI, or null when unset.</summary>
     public static Uri? Socks5Uri => _socks5Uri;
+
+    /// <summary>The currently configured proxy exceptions; empty when unset.</summary>
+    public static ProxyBypassMatcher Bypass => _bypass;
 
     /// <summary>
     /// A proxy for callers whose historical default was the environment proxy
@@ -38,7 +43,7 @@ public static class OutboundProxy
     public static readonly IWebProxy StrictWebProxy = new OutboundWebProxy(fallbackToEnvironment: false);
 
     /// <summary>
-    /// Creates a <see cref="SocketsHttpHandler"/> that routes non-local
+    /// Creates a <see cref="SocketsHttpHandler"/> that routes non-bypassed
     /// destinations through the configured SOCKS5 proxy and falls back to the
     /// environment proxy policy when unconfigured.
     /// </summary>
@@ -49,11 +54,14 @@ public static class OutboundProxy
     };
 
     /// <summary>
-    /// Applies a new <c>general.socks5-proxy</c> config value. Empty or invalid
-    /// values clear the proxy.
+    /// Applies new <c>general.socks5-proxy</c> and <c>general.socks5-proxy-bypass</c>
+    /// config values. Empty or invalid values clear the proxy / the exceptions.
     /// </summary>
-    public static void Update(string? configValue) =>
+    public static void Update(string? configValue, string? bypassValue = null)
+    {
         _socks5Uri = TryParseSocks5Url(configValue);
+        _bypass = ProxyBypassMatcher.Parse(bypassValue);
+    }
 
     /// <summary>
     /// Parses a SOCKS5 proxy URL. Accepts <c>socks5://host:port</c> and
@@ -93,6 +101,32 @@ public static class OutboundProxy
         destination.IsLoopback ||
         (destination.HostNameType == UriHostNameType.Dns && !destination.IdnHost.Contains('.', StringComparison.Ordinal));
 
+    /// <summary>
+    /// True for destinations that must never be routed through the outbound proxy:
+    /// local destinations (see <see cref="IsLocalDestination"/>) plus every host
+    /// matched by the configured <c>general.socks5-proxy-bypass</c> exceptions.
+    /// </summary>
+    public static bool IsBypassed(Uri destination) =>
+        IsLocalDestination(destination) ||
+        _bypass.Matches(destination.HostNameType == UriHostNameType.Dns ? destination.IdnHost : destination.Host);
+
+    /// <summary>
+    /// Host-based variant of <see cref="IsBypassed(Uri)"/> for callers that only have
+    /// a bare host name, such as NNTP provider hosts.
+    /// </summary>
+    public static bool IsBypassedHost(string host) =>
+        IsLocalHost(host) || _bypass.Matches(host);
+
+    private static bool IsLocalHost(string host)
+    {
+        if (IPAddress.TryParse(host, out var address))
+            return address.IsLoopback;
+        // A colon means an IPv6 literal that failed to parse; never treat it as a name.
+        if (host.Contains(':', StringComparison.Ordinal))
+            return false;
+        return !host.Contains('.', StringComparison.Ordinal);
+    }
+
     private sealed class OutboundWebProxy(bool fallbackToEnvironment) : IWebProxy
     {
         // Always false: routing decisions are made in GetProxy so local
@@ -102,7 +136,7 @@ public static class OutboundProxy
         public Uri GetProxy(Uri destination)
         {
             var socks5 = _socks5Uri;
-            if (socks5 is not null && !IsLocalDestination(destination))
+            if (socks5 is not null && !IsBypassed(destination))
                 return socks5;
             if (fallbackToEnvironment && socks5 is null)
                 return HttpClient.DefaultProxy.GetProxy(destination) ?? destination;

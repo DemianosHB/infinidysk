@@ -61,4 +61,37 @@ public sealed class ProxyConfigTests
             },
         ]));
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("sonarr.lan")]
+    [InlineData("sonarr.lan, .internal, *.corp.example, 192.168.1.50, 192.168.0.0/16, fd00::/8")]
+    [InlineData("*")]
+    [InlineData("nas.lan\n10.0.0.0/8")] // newline-separated also works
+    public void ValidProxyBypass_IsAccepted(string configured)
+    {
+        ConfigManager.ValidateConfigItems([
+            new ConfigItem
+            {
+                ConfigName = ConfigKeys.GeneralSocks5ProxyBypass,
+                ConfigValue = configured,
+            },
+        ]);
+    }
+
+    [Theory]
+    [InlineData("192.168.0.0/33")] // broken CIDR
+    [InlineData("http://sonarr.lan")] // scheme is not a host entry
+    [InlineData("sonarr:8989")] // port is not part of an entry
+    [InlineData("*foo")] // wildcard only as "*" or "*."
+    public void InvalidProxyBypass_IsRejected(string configured)
+    {
+        Assert.Throws<ArgumentException>(() => ConfigManager.ValidateConfigItems([
+            new ConfigItem
+            {
+                ConfigName = ConfigKeys.GeneralSocks5ProxyBypass,
+                ConfigValue = configured,
+            },
+        ]));
+    }
 }

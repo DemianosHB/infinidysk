@@ -80,6 +80,7 @@ const defaultConfig = {
   "general.base-url": "",
   "general.trust-proxy": "false",
   "general.socks5-proxy": "",
+  "general.socks5-proxy-bypass": "",
   "api.key": "",
   "api.categories": "",
   "api.manual-category": "uncategorized",
@@ -396,8 +397,9 @@ function GeneralSettings({
             >
               Applies to Usenet connections and outbound HTTP requests (indexers, metadata lookups,
               watchtower sources). Local destinations (loopback and single-label Docker service
-              names) and per-indexer proxy settings keep their configured behavior. DNS is resolved
-              by the proxy; changes affect new connections after saving.
+              names) always connect directly, as do the exceptions below; per-indexer proxy settings
+              keep their configured behavior. DNS is resolved by the proxy; changes affect new
+              connections after saving.
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <Button
@@ -417,6 +419,37 @@ function GeneralSettings({
             </div>
           </div>
         </ManagedSetting>
+        <ManagedSetting configKey="general.socks5-proxy-bypass">
+          <div className="space-y-2">
+            <label
+              className="block text-sm font-medium text-base-content"
+              htmlFor="general-socks5-proxy-bypass-input"
+            >
+              Proxy exceptions
+            </label>
+            <Input
+              className="w-full"
+              type="text"
+              id="general-socks5-proxy-bypass-input"
+              aria-describedby="general-socks5-proxy-bypass-help"
+              placeholder="sonarr.lan, .internal, 192.168.0.0/16"
+              value={config["general.socks5-proxy-bypass"] ?? ""}
+              onChange={(e) =>
+                setNewConfig({ ...config, "general.socks5-proxy-bypass": e.target.value })
+              }
+            />
+            <p
+              className="text-[11px] leading-relaxed text-base-content/45"
+              id="general-socks5-proxy-bypass-help"
+            >
+              Comma-separated internal services that always connect directly, bypassing the proxy:
+              host names (also covering their subdomains), domain suffixes like .lan or
+              *.corp.example, IP addresses, CIDR ranges, or * for everything. Loopback and
+              single-label Docker names stay direct regardless. Applies to Usenet connections and
+              outbound HTTP requests after saving.
+            </p>
+          </div>
+        </ManagedSetting>
       </SettingsCard>
     </SettingsPage>
   );
@@ -429,7 +462,8 @@ export function isGeneralSettingsUpdated(
   return (
     config["general.base-url"] !== newConfig["general.base-url"] ||
     config["general.trust-proxy"] !== newConfig["general.trust-proxy"] ||
-    config["general.socks5-proxy"] !== newConfig["general.socks5-proxy"]
+    config["general.socks5-proxy"] !== newConfig["general.socks5-proxy"] ||
+    config["general.socks5-proxy-bypass"] !== newConfig["general.socks5-proxy-bypass"]
   );
 }
 

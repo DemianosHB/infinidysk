@@ -4,12 +4,14 @@ using NzbWebDAV.Utils;
 namespace NzbWebDAV.Clients;
 
 /// <summary>
-/// Shared transport for Radarr/Sonarr/Prowlarr management API calls. Single-label
-/// hostnames (Docker service names such as <c>sonarr</c>) always connect directly,
-/// even when a process-wide proxy is configured; every other destination keeps the
-/// default proxy policy, including NO_PROXY rules and proxy credentials. When the
-/// <c>general.socks5-proxy</c> setting is configured, non-local destinations route
-/// through that SOCKS5 proxy instead of the environment proxy policy.
+/// Shared transport for Radarr/Sonarr/Prowlarr management API calls. Local and
+/// excepted hostnames (loopback, single-label Docker service names such as
+/// <c>sonarr</c>, and anything listed in <c>general.socks5-proxy-bypass</c>) always
+/// connect directly, even when a process-wide proxy is configured; every other
+/// destination keeps the default proxy policy, including NO_PROXY rules and proxy
+/// credentials. When the <c>general.socks5-proxy</c> setting is configured,
+/// non-bypassed destinations route through that SOCKS5 proxy instead of the
+/// environment proxy policy.
 /// </summary>
 public static class ArrHttpTransport
 {
@@ -31,7 +33,9 @@ public static class ArrHttpTransport
         destination.HostNameType == UriHostNameType.Dns && !destination.IdnHost.Contains('.', StringComparison.Ordinal);
 
     public static string DescribeRouting(Uri destination) =>
-        IsSingleLabelHost(destination) ? "direct (single-label hostname)" : "default proxy policy";
+        IsSingleLabelHost(destination) ? "direct (single-label hostname)"
+        : OutboundProxy.IsBypassed(destination) ? "direct (proxy exception)"
+        : "default proxy policy";
 
     internal sealed class RoutingHandler(HttpMessageHandler? directHandler = null, HttpMessageHandler? defaultHandler = null)
         : HttpMessageHandler
@@ -40,7 +44,7 @@ public static class ArrHttpTransport
         private readonly HttpMessageInvoker _default = new(defaultHandler ?? CreateSocketHandler(useProxy: true), disposeHandler: true);
 
         private HttpMessageInvoker Select(HttpRequestMessage request) =>
-            IsSingleLabelHost(request.RequestUri!) ? _direct : _default;
+            OutboundProxy.IsBypassed(request.RequestUri!) ? _direct : _default;
 
         protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
