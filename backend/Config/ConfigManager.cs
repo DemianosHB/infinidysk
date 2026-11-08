@@ -437,12 +437,16 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
         PathSanitizer.SetWindowsSafePathsEnabled(IsWindowsSafePathsEnabled());
 
     /// <summary>
-    /// Publishes the current <c>general.socks5-proxy</c> value to
-    /// <see cref="Utils.OutboundProxy"/> so all outbound HTTP and NNTP connections
-    /// route through it without restarting. Empty or invalid values clear it.
+    /// Publishes the current <c>general.socks5-proxy</c> and
+    /// <c>general.socks5-proxy-bypass</c> values to <see cref="Utils.OutboundProxy"/>
+    /// so all outbound HTTP and NNTP connections route through the proxy (or connect
+    /// directly for excepted destinations) without restarting. Empty or invalid
+    /// values clear them.
     /// </summary>
     private void SyncOutboundProxy() =>
-        OutboundProxy.Update(GetConfigValue(ConfigKeys.GeneralSocks5Proxy));
+        OutboundProxy.Update(
+            GetConfigValue(ConfigKeys.GeneralSocks5Proxy),
+            GetConfigValue(ConfigKeys.GeneralSocks5ProxyBypass));
 
     // Get-only computed properties are serialized by default and count as mapped,
     // so JsonSerializer.Serialize output for these types round-trips unchanged.
@@ -617,6 +621,10 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
 
                 case ConfigKeys.GeneralSocks5Proxy:
                     RequireSocks5ProxyUrl(item.ConfigName, value);
+                    break;
+
+                case ConfigKeys.GeneralSocks5ProxyBypass:
+                    RequireSocks5ProxyBypass(item.ConfigName, value);
                     break;
 
                 case ConfigKeys.ApiEnsureImportableVideo:
@@ -812,6 +820,16 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
             if (OutboundProxy.TryParseSocks5Url(value) is null)
                 throw new ArgumentException(
                     $"Config value for '{key}' must be a socks5://host:port URL (socks5h:// is accepted) without credentials, query, or fragment.");
+        }
+
+        void RequireSocks5ProxyBypass(string key, string value)
+        {
+            foreach (var entry in ProxyBypassMatcher.SplitEntries(value))
+            {
+                if (!ProxyBypassMatcher.IsValidEntry(entry))
+                    throw new ArgumentException(
+                        $"Config value for '{key}' contains an invalid proxy exception '{entry}': expected a host name, a domain suffix (.example.com or *.example.com), an IP address, a CIDR range, or '*'.");
+            }
         }
 
         void RequireBool(string key, string value)
@@ -2558,15 +2576,22 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
 
     /// <summary>
     /// The SOCKS5 proxy endpoint NNTP provider connections are tunneled through,
-    /// or null when unset/invalid. Host names are resolved by the proxy.
+    /// or null when unset/invalid. Host names are resolved by the proxy. When
+    /// <paramref name="destinationHost"/> is given and is an excepted destination
+    /// (loopback, single-label name, or listed in <c>general.socks5-proxy-bypass</c>),
+    /// null is returned so the connection goes direct.
     /// </summary>
-    public Socks5ProxyEndpoint? GetUsenetSocks5Proxy()
+    public Socks5ProxyEndpoint? GetUsenetSocks5Proxy(string? destinationHost = null)
     {
         var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.GeneralSocks5Proxy));
         if (configValue == null)
             return null;
         var uri = OutboundProxy.TryParseSocks5Url(configValue);
-        return uri is null ? null : new Socks5ProxyEndpoint(uri.Host, uri.Port);
+        if (uri is null)
+            return null;
+        if (destinationHost is not null && OutboundProxy.IsBypassedHost(destinationHost))
+            return null;
+        return new Socks5ProxyEndpoint(uri.Host, uri.Port);
     }
 
     public bool IsRcloneRemoteControlEnabled()

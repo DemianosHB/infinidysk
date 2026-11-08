@@ -53,7 +53,8 @@ public class UsenetStreamingClient : WrappingNntpClient
             var streamingPriorityChanged =
                 configEventArgs.ChangedConfig.ContainsKey(ConfigKeys.UsenetStreamingPriority);
             var socks5ProxyChanged =
-                configEventArgs.ChangedConfig.ContainsKey(ConfigKeys.GeneralSocks5Proxy);
+                configEventArgs.ChangedConfig.ContainsKey(ConfigKeys.GeneralSocks5Proxy)
+                || configEventArgs.ChangedConfig.ContainsKey(ConfigKeys.GeneralSocks5ProxyBypass);
 
             // if unrelated config changed, do nothing
             if (!providersChanged && !streamingPriorityChanged && !socks5ProxyChanged) return;
@@ -235,7 +236,6 @@ public class UsenetStreamingClient : WrappingNntpClient
     {
         var providerSnapshot = configManager.GetUsenetProviderSnapshot();
         var providerConfig = providerSnapshot.Providers;
-        var socks5Proxy = configManager.GetUsenetSocks5Proxy();
 
         var connectionPoolStats = new ConnectionPoolStats(providerConfig, websocketManager);
         var idleTimeoutSeconds = configManager.GetIdleConnectionTimeoutSeconds();
@@ -261,7 +261,9 @@ public class UsenetStreamingClient : WrappingNntpClient
                 latencyTracker,
                 tripDetector,
                 bytesTracker,
-                socks5Proxy
+                // Providers on the proxy-exception list (general.socks5-proxy-bypass)
+                // connect directly; the rest are tunneled through the SOCKS5 proxy.
+                configManager.GetUsenetSocks5Proxy(provider.Host)
             ))
             .ToList();
         return new MultiProviderNntpClient(

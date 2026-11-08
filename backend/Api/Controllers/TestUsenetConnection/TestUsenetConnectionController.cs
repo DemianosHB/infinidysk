@@ -19,7 +19,7 @@ public class TestUsenetConnectionController(ConfigManager configManager) : BaseA
                 request.ToConnectionDetails(),
                 configManager.GetNntpReadTimeout(),
                 HttpContext.RequestAborted,
-                socks5Proxy: configManager.GetUsenetSocks5Proxy()).ConfigureAwait(false);
+                socks5Proxy: configManager.GetUsenetSocks5Proxy(request.Host)).ConfigureAwait(false);
             return new TestUsenetConnectionResponse { Status = true, Connected = true };
         }
         catch (CouldNotConnectToUsenetException e)

@@ -7,28 +7,29 @@ import {
 } from "./route";
 
 describe("settings change persistence", () => {
-  it.each(["general.base-url", "general.trust-proxy", "general.socks5-proxy"])(
-    "detects a change to %s",
-    (configKey) => {
-      const config = {
-        "general.base-url": "https://nzbdav.example.com",
-        "general.trust-proxy": "false",
-        "general.socks5-proxy": "socks5://proxy1.example:1080",
-      };
+  it.each([
+    "general.base-url",
+    "general.trust-proxy",
+    "general.socks5-proxy",
+    "general.socks5-proxy-bypass",
+  ])("detects a change to %s", (configKey) => {
+    const config = {
+      "general.base-url": "https://nzbdav.example.com",
+      "general.trust-proxy": "false",
+      "general.socks5-proxy": "socks5://proxy1.example:1080",
+      "general.socks5-proxy-bypass": "",
+    };
+    const changedValues: Record<string, string> = {
+      "general.base-url": "https://new.example.com",
+      "general.trust-proxy": "true",
+      "general.socks5-proxy": "socks5://proxy2.example:1080",
+      "general.socks5-proxy-bypass": ".lan, 192.168.0.0/16",
+    };
 
-      expect(
-        isGeneralSettingsUpdated(config, {
-          ...config,
-          [configKey]:
-            configKey === "general.base-url"
-              ? "https://new.example.com"
-              : configKey === "general.socks5-proxy"
-                ? "socks5://proxy2.example:1080"
-                : "true",
-        }),
-      ).toBe(true);
-    },
-  );
+    expect(
+      isGeneralSettingsUpdated(config, { ...config, [configKey]: changedValues[configKey]! }),
+    ).toBe(true);
+  });
 
   it("includes repair settings in the save payload", () => {
     const config = {

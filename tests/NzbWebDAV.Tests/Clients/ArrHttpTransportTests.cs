@@ -1,10 +1,12 @@
 using System.Globalization;
 using System.Net;
 using NzbWebDAV.Clients;
+using NzbWebDAV.Tests.TestUtils;
 using NzbWebDAV.Utils;
 
 namespace NzbWebDAV.Tests.Clients;
 
+[Collection(nameof(GlobalOutboundProxyCollection))]
 public class ArrHttpTransportTests
 {
     [Theory]
@@ -44,6 +46,29 @@ public class ArrHttpTransportTests
         Assert.Equal([destination], defaultHandler.Seen);
         Assert.Empty(direct.Seen);
         Assert.Equal("default proxy policy", ArrHttpTransport.DescribeRouting(destination));
+    }
+
+    [Fact]
+    public async Task ConfiguredException_RoutesDirect_WithoutConsultingDefault()
+    {
+        OutboundProxy.Update("socks5://gluetun:1080", ".lan");
+        try
+        {
+            var direct = new RecordingHandler();
+            var defaultHandler = new RecordingHandler();
+            using var client = new HttpClient(new ArrHttpTransport.RoutingHandler(direct, defaultHandler));
+            var destination = new Uri("http://sonarr.media.lan:8989");
+
+            using var response = await client.GetAsync(destination);
+
+            Assert.Equal([destination], direct.Seen);
+            Assert.Empty(defaultHandler.Seen);
+            Assert.Equal("direct (proxy exception)", ArrHttpTransport.DescribeRouting(destination));
+        }
+        finally
+        {
+            OutboundProxy.Update(null);
+        }
     }
 
     [Theory]
