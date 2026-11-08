@@ -174,15 +174,15 @@ public sealed class ProxyBypassMatcher
             name = name[1..]; // "*.example.com" -> ".example.com"
             suffixOnly = true;
         }
-        if (name.StartsWith('.', StringComparison.Ordinal))
+        if (name.StartsWith(".", StringComparison.Ordinal))
             suffixOnly = true;
-        if (name.EndsWith('.', StringComparison.Ordinal))
+        if (name.EndsWith(".", StringComparison.Ordinal))
             name = name[..^1]; // tolerate the FQDN trailing dot
         if (!IsValidHostName(name))
             return false;
 
         parsed = suffixOnly
-            ? new Entry.Suffix(name.StartsWith('.', StringComparison.Ordinal) ? name : "." + name)
+            ? new Entry.Suffix(name.StartsWith(".", StringComparison.Ordinal) ? name : "." + name)
             : new Entry.Host(name);
         return true;
     }

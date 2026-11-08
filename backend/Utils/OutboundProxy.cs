@@ -120,7 +120,7 @@ public static class OutboundProxy
     private static bool IsLocalHost(string host)
     {
         if (IPAddress.TryParse(host, out var address))
-            return address.IsLoopback;
+            return IPAddress.IsLoopback(address);
         // A colon means an IPv6 literal that failed to parse; never treat it as a name.
         if (host.Contains(':', StringComparison.Ordinal))
             return false;
