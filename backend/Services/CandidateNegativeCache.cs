@@ -7,6 +7,7 @@ public class CandidateNegativeCache
 {
     private readonly ConfigManager _configManager;
     private readonly ConcurrentDictionary<string, DateTimeOffset> _failedAt = new();
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _stalledAt = new();
     private readonly ConcurrentDictionary<Guid, DateTimeOffset> _brokenHistoryAt = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _brokenFileNameAt =
         new(StringComparer.OrdinalIgnoreCase);
@@ -29,6 +30,27 @@ public class CandidateNegativeCache
     {
         _failedAt[nzbUrl] = DateTimeOffset.UtcNow;
         if (_failedAt.Count > 512) Cleanup();
+    }
+
+    /// <summary>
+    /// Fork (stall negative marking): advisory mark for a candidate that aborted for
+    /// a serving stall. Independent from <see cref="MarkFailed"/>: a stall can be
+    /// transient, so the mark carries the shorter stall TTL and never poisons the
+    /// queue-failure negative cache.
+    /// </summary>
+    public bool IsStalled(string nzbUrl)
+    {
+        if (!_stalledAt.TryGetValue(nzbUrl, out var stalledAt)) return false;
+        var ttl = _configManager.GetPlayStallNegativeMarkingTtl();
+        if (DateTimeOffset.UtcNow - stalledAt < ttl) return true;
+        _stalledAt.TryRemove(nzbUrl, out _);
+        return false;
+    }
+
+    public void MarkStalled(string nzbUrl)
+    {
+        _stalledAt[nzbUrl] = DateTimeOffset.UtcNow;
+        if (_stalledAt.Count > 512) CleanupStalled();
     }
 
     public bool IsHistoryItemBroken(Guid historyItemId)
@@ -95,5 +117,13 @@ public class CandidateNegativeCache
         var cutoff = DateTimeOffset.UtcNow - ttl;
         foreach (var kv in _brokenFileNameAt)
             if (kv.Value < cutoff) _brokenFileNameAt.TryRemove(kv.Key, out _);
+    }
+
+    private void CleanupStalled()
+    {
+        var ttl = _configManager.GetPlayStallNegativeMarkingTtl();
+        var cutoff = DateTimeOffset.UtcNow - ttl;
+        foreach (var kv in _stalledAt)
+            if (kv.Value < cutoff) _stalledAt.TryRemove(kv.Key, out _);
     }
 }
