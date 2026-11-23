@@ -328,7 +328,7 @@ public class ProfilePlayController(
 
             var batch = await RunBatchAsync(pool, rankIndex, nzbToken, contentType, requestedTitle,
                 clickId, startsAt, verifyMode, verifySampleCount, hedgeDelay, deadline, totalCts, contentGroupKey,
-                preferSubtitles).ConfigureAwait(false);
+                preferSubtitles, markStalledCandidates).ConfigureAwait(false);
 
             switch (batch.Outcome)
             {
@@ -458,7 +458,8 @@ public class ProfilePlayController(
         DateTimeOffset deadline,
         CancellationTokenSource totalCts,
         string? contentGroupKey,
-        bool preferSubtitles)
+        bool preferSubtitles,
+        bool markStalledCandidates)
     {
         foreach (var c in pool) startsAt[c.NzbUrl] = DateTimeOffset.UtcNow;
 
