@@ -1878,6 +1878,34 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
     }
 
     /// <summary>
+    /// Fork (stall negative marking): when enabled, candidates that abort for a
+    /// serving stall (no progress within the grab stall window) are stall-marked so
+    /// a warm player retry skips them instead of re-walking — and re-stalling on —
+    /// the same winner. Disabled by default to preserve upstream semantics. Stall
+    /// marks are advisory: the play walk ignores them when they would exclude every
+    /// otherwise-eligible candidate (fail-open).
+    /// </summary>
+    public bool IsPlayStallNegativeMarkingEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PlayStallNegativeMarkingEnabled));
+        if (v == null) return false;
+        return bool.TryParse(v, out var enabled) && enabled;
+    }
+
+    /// <summary>
+    /// Fork (stall negative marking): TTL of a play stall mark. Deliberately an
+    /// independent knob: a serving stall can be transient (provider congestion in
+    /// fetch bursts, evening prime time), so the mark must heal faster than the
+    /// queue-failure negative cache that marks genuinely-dead candidates.
+    /// </summary>
+    public TimeSpan GetPlayStallNegativeMarkingTtl()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PlayStallNegativeMarkingMinutes));
+        if (v == null) return TimeSpan.FromMinutes(15);
+        return int.TryParse(v, out var n) ? TimeSpan.FromMinutes(Math.Clamp(n, 1, 60 * 24)) : TimeSpan.FromMinutes(15);
+    }
+
+    /// <summary>
     /// Lifetime of play tokens served in search results. Config key wins over
     /// RESOLUTION_CACHE_TTL_HOURS; default 7 days to outlive consumer search caches.
     /// </summary>

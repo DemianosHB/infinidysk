@@ -243,6 +243,16 @@ public class ProfilePlayController(
         var qualitySort = playProfile?.QualitySort ?? ProfileConfig.QualitySortMode.Off;
         var fallbackQueue = BuildFallbackQueue(
             entry, preferredOrder, preferSubtitles, preferredAudioLanguages, qualitySort);
+        // Fork (stall negative marking): opt-in — candidates that aborted for a serving
+        // stall are stall-marked so a warm player retry skips them instead of re-walking
+        // (and re-stalling on) the same winner. Marks are advisory: when every candidate
+        // that is not permanently excluded already carries a warm stall mark, the marks
+        // are ignored for this click so stall marking alone can never empty the walk.
+        var markStalledCandidates = configManager.IsPlayStallNegativeMarkingEnabled();
+        var ignoreStallMarks = markStalledCandidates && fallbackQueue
+            .Where(c => !negativeCache.IsFailed(c.NzbUrl)
+                        && !wardenStore.IsDeadAnywhere(WardenFingerprint.Compute(c.Size, c.Poster, c.UsenetDate)))
+            .All(c => negativeCache.IsStalled(c.NzbUrl));
         var rankIndex = new Dictionary<string, int>();
         var displayRank = 0;
         var queueIndex = 0;
@@ -277,6 +287,23 @@ public class ProfilePlayController(
                         providerHost: AllConfiguredProvidersDisplay());
                     continue;
                 }
+                if (markStalledCandidates && !ignoreStallMarks && negativeCache.IsStalled(c.NzbUrl))
+                {
+                    // Fork (stall negative marking): the candidate aborted for a serving
+                    // stall recently. Skip it while its stall mark is warm so the retry
+                    // reaches the next-best candidate; the watchdog entry keeps the skip
+                    // visible, matching the other skip branches above.
+                    var skippedRank = displayRank++;
+                    rankIndex[c.NzbUrl] = skippedRank;
+                    startsAt[c.NzbUrl] = DateTimeOffset.UtcNow;
+                    RecordAttempt(clickId, c, contentType, requestedTitle, skippedRank,
+                        WatchdogEntry.Outcome.PreVerifyDead,
+                        "Recently aborted for a serving stall — skipped while its stall mark is warm",
+                        startsAt, isWinner: false,
+                        contentGroupKey: contentGroupKey,
+                        providerHost: AllConfiguredProvidersDisplay());
+                    continue;
+                }
                 var candidateFileName = ProfileReleaseName.ToNzbFileName(c.Title);
                 if (negativeCache.IsFileNameBroken(candidateFileName))
                 {
@@ -301,7 +328,7 @@ public class ProfilePlayController(
 
             var batch = await RunBatchAsync(pool, rankIndex, nzbToken, contentType, requestedTitle,
                 clickId, startsAt, verifyMode, verifySampleCount, hedgeDelay, deadline, totalCts, contentGroupKey,
-                preferSubtitles).ConfigureAwait(false);
+                preferSubtitles, markStalledCandidates).ConfigureAwait(false);
 
             switch (batch.Outcome)
             {
@@ -431,7 +458,8 @@ public class ProfilePlayController(
         DateTimeOffset deadline,
         CancellationTokenSource totalCts,
         string? contentGroupKey,
-        bool preferSubtitles)
+        bool preferSubtitles,
+        bool markStalledCandidates)
     {
         foreach (var c in pool) startsAt[c.NzbUrl] = DateTimeOffset.UtcNow;
 
@@ -550,6 +578,11 @@ public class ProfilePlayController(
                 }
                 if (reason == CommitReason.Aborted)
                 {
+                    // Fork (stall negative marking): remember which candidate stalled so
+                    // a warm player retry walks past it. Advisory only (config-gated,
+                    // fail-open when all candidates would be skipped — see walk setup).
+                    if (markStalledCandidates)
+                        negativeCache.MarkStalled(best.Candidate.NzbUrl);
                     if (newNzoId.HasValue)
                         await RemoveAbortedQueueItemAsync(newNzoId.Value).ConfigureAwait(false);
                     continue;

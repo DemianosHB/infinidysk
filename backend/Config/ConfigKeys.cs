@@ -156,6 +156,9 @@ public static class ConfigKeys
     public const string PlayPreferSubtitles = "play.prefer-subtitles";
     public const string PlayResolutionCacheTtlHours = "play.resolution-cache-ttl-hours";
     public const string PlayTotalBudgetSeconds = "play.total-budget-seconds";
+    // Fork (stall negative marking)
+    public const string PlayStallNegativeMarkingEnabled = "play.stall-negative-marking-enabled";
+    public const string PlayStallNegativeMarkingMinutes = "play.stall-negative-marking-minutes";
     public const string PlayVerifyMode = "play.verify-mode";
     public const string PlayVerifySampleCount = "play.verify-sample-count";
     public const string PlayWatchdogEnabled = "play.watchdog-enabled";
