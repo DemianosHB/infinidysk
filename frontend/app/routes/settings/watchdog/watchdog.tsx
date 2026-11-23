@@ -19,6 +19,7 @@ export function WatchdogSettings({ config, setNewConfig }: WatchdogSettingsProps
   const verifyMode = config["play.verify-mode"] ?? "none";
   const enabled = (config["play.watchdog-enabled"] ?? "true") === "true";
   const stallFailoverEnabled = (config["grab.stall-failover-enabled"] ?? "true") === "true";
+  const stallMarkingEnabled = (config["play.stall-negative-marking-enabled"] ?? "false") === "true";
   const subtitlePreference = (config["play.prefer-subtitles"] ?? "true") === "true";
 
   const variantsMode = config["variants.mode"] ?? "off";
@@ -46,6 +47,8 @@ export function WatchdogSettings({ config, setNewConfig }: WatchdogSettingsProps
           "grab.stall-failover-enabled",
           "grab.stall-failover-window-seconds",
           "grab.stall-failover-ceiling-seconds",
+          "play.stall-negative-marking-enabled",
+          "play.stall-negative-marking-minutes",
           "variants.mode",
           "variants.tolerance-pct",
           "variants.max-per-group",
@@ -291,6 +294,42 @@ export function WatchdogSettings({ config, setNewConfig }: WatchdogSettingsProps
                 progress — a backstop for a candidate that is queued but not yet started. Default 5.
               </p>
             </Form.Group>
+
+            <Form.Group className="flex flex-col gap-2">
+              <Tooltip
+                placement="bottom"
+                content="When a candidate is aborted for a serving stall, remember it briefly so a warm player retry walks past it instead of re-stalling on the same release. Off by default. Marks are advisory: if every remaining candidate is stall-marked, the marks are ignored for that request."
+              >
+                <Form.Check
+                  type="switch"
+                  id="play-stall-negative-marking-enabled"
+                  className="cursor-pointer gap-2 p-0"
+                  label="Skip stalled candidates on retry (stall negative marking)"
+                  disabled={!enabled || !stallFailoverEnabled}
+                  checked={stallMarkingEnabled}
+                  onChange={(e) =>
+                    set("play.stall-negative-marking-enabled", String(e.target.checked))
+                  }
+                />
+              </Tooltip>
+            </Form.Group>
+
+            <Form.Group className="flex flex-col gap-2">
+              <Form.Label>Stall-mark TTL (minutes)</Form.Label>
+              <Form.Control
+                className="w-full max-w-48"
+                type="number"
+                min={1}
+                max={1440}
+                disabled={!enabled || !stallFailoverEnabled || !stallMarkingEnabled}
+                value={config["play.stall-negative-marking-minutes"] ?? "15"}
+                onChange={(e) => set("play.stall-negative-marking-minutes", e.target.value)}
+              />
+              <p className="m-0 text-[11px] leading-relaxed text-base-content/45">
+                How long a serving-stall mark stays warm. Transient stalls heal after this TTL,
+                faster than the negative cache for genuinely dead releases. Default 15.
+              </p>
+            </Form.Group>
           </SettingsCard>
 
           <SettingsCard
@@ -470,6 +509,10 @@ export function isWatchdogSettingsUpdated(
       newConfig["grab.stall-failover-window-seconds"] ||
     config["grab.stall-failover-ceiling-seconds"] !==
       newConfig["grab.stall-failover-ceiling-seconds"] ||
+    config["play.stall-negative-marking-enabled"] !==
+      newConfig["play.stall-negative-marking-enabled"] ||
+    config["play.stall-negative-marking-minutes"] !==
+      newConfig["play.stall-negative-marking-minutes"] ||
     config["variants.mode"] !== newConfig["variants.mode"] ||
     config["variants.tolerance-pct"] !== newConfig["variants.tolerance-pct"] ||
     config["variants.max-per-group"] !== newConfig["variants.max-per-group"] ||

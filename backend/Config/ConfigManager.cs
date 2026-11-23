@@ -578,6 +578,10 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
                     RequireLongInRange(item.ConfigName, value, 5, 10080);
                     break;
 
+                case ConfigKeys.PlayStallNegativeMarkingMinutes:
+                    RequireLongInRange(item.ConfigName, value, 1, 60 * 24);
+                    break;
+
                 case ConfigKeys.WatchtowerListSourceMaxResponseBytes:
                     RequireLongInRange(
                         item.ConfigName,
@@ -652,6 +656,7 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
                 case ConfigKeys.UsenetSharedStreamsEnabled:
                 case ConfigKeys.PlayWatchdogEnabled:
                 case ConfigKeys.PlayPreferSubtitles:
+                case ConfigKeys.PlayStallNegativeMarkingEnabled:
                 case ConfigKeys.GrabStallFailoverEnabled:
                 case ConfigKeys.VariantsFallbackOnFailure:
                 case ConfigKeys.VariantsSegmentDonorsEnabled:
