@@ -166,6 +166,8 @@ const defaultConfig = {
   "play.candidate-negative-cache-minutes": "5",
   "play.resolution-cache-ttl-hours": "168",
   "play.prefer-subtitles": "true",
+  "play.stall-negative-marking-enabled": "false",
+  "play.stall-negative-marking-minutes": "15",
   "grab.stall-failover-enabled": "true",
   "grab.stall-failover-window-seconds": "2",
   "grab.stall-failover-ceiling-seconds": "5",
