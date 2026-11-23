@@ -1,6 +1,6 @@
 ﻿using System.Text.Json.Serialization;
 
-namespace NzbWebDAV.Api.SabControllers;
+namespace NzbWebDAV.Api;
 
 public class SabBaseResponse
 {
