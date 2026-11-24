@@ -22,6 +22,8 @@ const baseConfig: Record<string, string> = {
   "repair.par2-max-patch-gb": "4",
   "repair.par2-fetch-concurrency": "2",
   "repair.par2-failure-cooldown-hours": "6",
+  "repair.readahead.enabled": "false",
+  "repair.readahead.window-seconds": "45",
   "repair.degraded-tolerance-enabled": "true",
   "repair.corruption-tracking-enabled": "true",
   "repair.degraded-max-consecutive-missing": "2",
@@ -48,6 +50,33 @@ describe("Repairs settings helpers", () => {
 
   it("accepts valid PAR2 numeric settings", () => {
     expect(isRepairsSettingsValid(baseConfig)).toBe(true);
+  });
+
+  it("detects read-ahead repair changes", () => {
+    expect(isRepairsSettingsUpdated(baseConfig, { ...baseConfig })).toBe(false);
+    expect(
+      isRepairsSettingsUpdated(baseConfig, { ...baseConfig, "repair.readahead.enabled": "true" }),
+    ).toBe(true);
+    expect(
+      isRepairsSettingsUpdated(baseConfig, {
+        ...baseConfig,
+        "repair.readahead.window-seconds": "60",
+      }),
+    ).toBe(true);
+  });
+
+  it("validates the read-ahead window range", () => {
+    expect(isRepairsSettingsValid(baseConfig)).toBe(true);
+    for (const value of ["5", "45", "600"]) {
+      expect(
+        isRepairsSettingsValid({ ...baseConfig, "repair.readahead.window-seconds": value }),
+      ).toBe(true);
+    }
+    for (const value of ["4", "601", "0", "abc"]) {
+      expect(
+        isRepairsSettingsValid({ ...baseConfig, "repair.readahead.window-seconds": value }),
+      ).toBe(false);
+    }
   });
 
   it("validates and detects read-hold changes", () => {
