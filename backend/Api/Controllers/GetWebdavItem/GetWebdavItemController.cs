@@ -216,6 +216,18 @@ public class GetWebdavItemController(
         {
             HttpContext.Items["configManager"] = configManager;
             var request = new GetWebdavItemRequest(HttpContext);
+
+            // Fork (read-ahead repair): /view serves the real player stream (the Watchdog
+            // play redirect and strm/symlink targets), so publish the same opt-in
+            // prefetch-widening settings the WebDAV GET/HEAD handler publishes — without
+            // this, read-ahead repair never applies to playback through this entry point.
+            // Watchdog candidate serving can never observe these options: pre-verify probes
+            // talk NNTP directly and candidate downloads run in the queue, both outside
+            // any HTTP request scope (pinned by ReadAheadRequestScopeGuardTests).
+            RangeContext.SetReadAheadRepair(
+                configManager.IsReadAheadRepairEnabled()
+                    ? new RangeContext.ReadAheadRepairOptions(true, configManager.GetReadAheadRepairWindowSeconds())
+                    : null);
             using var concurrentReadScope = concurrentReadTracker.BeginRead(
                 request.Item,
                 request.SuffixLength.HasValue ? null : request.RangeStart ?? 0,
