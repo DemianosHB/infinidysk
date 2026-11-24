@@ -1,11 +1,10 @@
 name: Fork Docker build and push
 
-# Fork-specific image build (DemianosHB/infinidysk, 1.x + preferred-audio-languages patch).
+# Fork-specific image build (DemianosHB/infinidysk, v1-only fork).
 # Builds the multi-arch image into this fork's own GHCR namespace:
 #   ghcr.io/demianoshb/infinidysk
-# Note: GitHub only offers the manual "Run workflow" button for workflows on the
-# default branch (here: main = the 2.0 Rust rewrite), so this fork uses push
-# triggers instead:
+# Note: this fork develops the v1 branch only (no 2.x line here), so besides
+# manual dispatch on the default branch this fork uses push triggers:
 #   - push to feat/preferred-audio-languages or v1 -> rolling "lang-dev" image
 #   - push of a tag starting with "v"               -> versioned image (e.g. v1.7.1-lang1)
 # Both also push ":latest". GITHUB_TOKEN with packages:write is enough for GHCR.
