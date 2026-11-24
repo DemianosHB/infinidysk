@@ -29,7 +29,7 @@ public sealed class ReadAheadRequestScopeGuardTests
                 RangeContext.SetReadAheadRepair(new RangeContext.ReadAheadRepairOptions(true, 60));
                 publishedInRequest =
                     RangeContext.GetReadAheadRepair() is { Enabled: true, WindowSeconds: 60 };
-            }).ConfigureAwait(false);
+            });
 
             // The request flow observed its own publish...
             Assert.True(publishedInRequest);
@@ -60,7 +60,7 @@ public sealed class ReadAheadRequestScopeGuardTests
             // A request flow somewhere else in the process published the options.
             await Task.Run(() =>
                 RangeContext.SetReadAheadRepair(
-                    new RangeContext.ReadAheadRepairOptions(true, 60))).ConfigureAwait(false);
+                    new RangeContext.ReadAheadRepairOptions(true, 60)));
 
             // Candidate context: this flow never passed through a serving entry
             // point, so it sees no options and the stream keeps its stock prefetch
