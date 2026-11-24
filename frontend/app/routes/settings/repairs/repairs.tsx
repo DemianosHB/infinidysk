@@ -605,9 +605,7 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
                 onChange={(e) =>
                   setNewConfig({ ...config, "repair.readahead.enabled": "" + e.target.checked })
                 }
-                label={
-                  <span className="text-sm text-base-content">Read-ahead repair</span>
-                }
+                label={<span className="text-sm text-base-content">Read-ahead repair</span>}
               />
             </Tooltip>
             <div className="space-y-2">
@@ -633,9 +631,9 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
                 }
               />
               <p className="text-[11px] leading-relaxed text-base-content/45">
-                How far ahead of the read head articles are fetched so holes can be repaired in
-                time (5&ndash;600). The window is sized from the measured playback bitrate and
-                capped by the article RAM budget.
+                How far ahead of the read head articles are fetched so holes can be repaired in time
+                (5&ndash;600). The window is sized from the measured playback bitrate and capped by
+                the article RAM budget.
               </p>
             </div>
           </ManagedSetting>
