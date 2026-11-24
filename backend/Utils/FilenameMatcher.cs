@@ -14,6 +14,13 @@ public static class FilenameMatcher
         @"[^a-z0-9]+",
         RegexOptions.Compiled);
 
+    // "Law & Order" vs "Law.and.Order", "Feuer & Flamme" vs "Feuer.und.Flamme": the ampersand and
+    // the localized conjunction must fold onto a shared "and" token so canonical (TVmaze / Wikidata)
+    // titles and scene naming can line up. Without this fold an "&" title never matches any release.
+    private static readonly Regex AmpersandRegex = new(
+        @"\s*&\s*",
+        RegexOptions.Compiled);
+
     // Plausible standalone release years in 1900..2199. Resolution tokens such as
     // 2160p / 1080i and WxH pairs (1920x1080) are excluded by the trailing lookahead.
     private static readonly Regex ReleaseYearRegex = new(
@@ -145,24 +152,62 @@ public static class FilenameMatcher
     public static string NormalizeTitle(string? title)
     {
         if (string.IsNullOrWhiteSpace(title)) return "";
-        var tokens = NonAlnumRegex.Replace(Fold(title), " ")
+        var tokens = NonAlnumRegex.Replace(Fold(AmpersandFold(title)), " ")
                                   .Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        return string.Join(' ', StripLeadingArticle(tokens));
+        return string.Join(' ', StripLeadingArticle(FoldConjunctions(tokens)));
+    }
+
+    private static string AmpersandFold(string? s) =>
+        string.IsNullOrEmpty(s) ? string.Empty : AmpersandRegex.Replace(s, " and ");
+
+    private static string[] FoldConjunctions(string[] tokens)
+    {
+        for (var i = 0; i < tokens.Length; i++)
+            if (tokens[i] == "und")
+                tokens[i] = "and";
+        return tokens;
     }
 
     public static bool TitleMatches(IReadOnlyCollection<string> expectedNormalized, string? releaseTitle)
     {
         if (expectedNormalized.Count == 0) return true;
-        var head = StripLeadingArticle(HeadTokens(releaseTitle));
+        var head = StripLeadingArticle(FoldConjunctions(HeadTokens(AmpersandFold(releaseTitle))));
         if (head.Length == 0) return false;
 
         if (expectedNormalized.Contains(string.Join(' ', head))) return true;
+
+        // Canonical titles can carry marketing subtitles the scene drops ("Feuer & Flamme - Mit
+        // Feuerwehrmaennern im Einsatz" vs "Feuer.und.Flamme.S10E07"): a release head that is the
+        // leading run of canonical tokens is the same show. Heads longer than the canonical title
+        // (spin-offs like "Law.and.Order.SVU" under "Law & Order") must NOT match, so the rule is
+        // one-directional, and single-token heads are excluded to avoid near-name collisions.
+        if (head.Length >= 2 && IsHeadPrefixOfCanonical(expectedNormalized, head)) return true;
 
         if (head.Length >= 2)
         {
             var last = head[^1];
             if (TrailingQualifiers.Contains(last) || (last.Length == 4 && last.All(char.IsDigit)))
                 return expectedNormalized.Contains(string.Join(' ', head[..^1]));
+        }
+        return false;
+    }
+
+    private static bool IsHeadPrefixOfCanonical(IReadOnlyCollection<string> expectedNormalized, string[] head)
+    {
+        foreach (var expected in expectedNormalized)
+        {
+            var tokens = expected.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length <= head.Length) continue;
+            var prefix = true;
+            for (var i = 0; i < head.Length; i++)
+            {
+                if (tokens[i] != head[i])
+                {
+                    prefix = false;
+                    break;
+                }
+            }
+            if (prefix) return true;
         }
         return false;
     }
