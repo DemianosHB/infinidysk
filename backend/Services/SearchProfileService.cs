@@ -423,25 +423,36 @@ public class SearchProfileService(
 
         if (verifyIdentity && type is "series" or "season")
         {
-            var expected = await BuildExpectedTitlesAsync(type, queryParams, ct).ConfigureAwait(false);
-            if (expected.Count > 0)
+            // tvdbid-anchored queries are already identity-scoped by the indexer, and the canonical
+            // title does not reliably match scene naming (ampersands, marketing subtitles, localised
+            // release names like "Der.Fall.Karen.Read" for "The Trials of Karen Read"). Re-checking
+            // ID results by name therefore rejects valid releases wholesale, so only guard queries
+            // that are not anchored to a tvdbid.
+            if (queryParams.ContainsKey("tvdbid"))
             {
-                var before = deduped.Count;
-                deduped = deduped
-                    .Where(EpisodeOk)
-                    .Where(x => FilenameMatcher.TitleMatches(expected, x.Item.Title))
-                    .ToList();
-                if (deduped.Count != before)
-                    Log.Information(
-                        "Identity guard {Type}/{Id}: kept {Kept}/{Before} result(s) matching \"{Title}\"",
-                        type, id, deduped.Count, before, string.Join("\" / \"", expected));
+                Log.Information("Identity guard {Type}/{Id}: skipped, query is tvdbid-anchored", type, id);
             }
             else
             {
-                Log.Debug("Identity guard {Type}/{Id}: no canonical title resolved; not filtering", type, id);
+                var expected = await BuildExpectedTitlesAsync(type, queryParams, ct).ConfigureAwait(false);
+                if (expected.Count > 0)
+                {
+                    var before = deduped.Count;
+                    deduped = deduped
+                        .Where(EpisodeOk)
+                        .Where(x => FilenameMatcher.TitleMatches(expected, x.Item.Title))
+                        .ToList();
+                    if (deduped.Count != before)
+                        Log.Information(
+                            "Identity guard {Type}/{Id}: kept {Kept}/{Before} result(s) matching \"{Title}\"",
+                            type, id, deduped.Count, before, string.Join("\" / \"", expected));
+                }
+                else
+                {
+                    Log.Debug("Identity guard {Type}/{Id}: no canonical title resolved; not filtering", type, id);
+                }
             }
         }
-
         var candidates = deduped
             .Select(x => new NzbResolutionCache.Candidate
             {
