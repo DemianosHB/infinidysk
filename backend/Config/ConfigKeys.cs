@@ -123,6 +123,9 @@ public static class ConfigKeys
     public const string RepairCorruptionTrackingEnabled = "repair.corruption-tracking-enabled";
     public const string RepairHealthcheckSchedule = "repair.healthcheck-schedule";
     public const string RepairActionSchedule = "repair.action-schedule";
+    // Fork (read-ahead repair)
+    public const string RepairReadAheadEnabled = "repair.readahead.enabled";
+    public const string RepairReadAheadWindowSeconds = "repair.readahead.window-seconds";
     public const string ArrInstances = "arr.instances";
     public const string ArrHealthEnabled = "arr.health-enabled";
 

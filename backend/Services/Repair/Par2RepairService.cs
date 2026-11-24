@@ -195,6 +195,7 @@ public partial class Par2RepairService : BackgroundService
     public virtual async Task EnqueueAsync(
         DavItem davItem,
         IReadOnlyList<string> missingSegmentIds,
+        bool fromStreaming = false,
         CancellationToken ct = default)
     {
         if (!_configManager.IsPar2RepairEnabled()) return;
@@ -224,7 +225,8 @@ public partial class Par2RepairService : BackgroundService
             davItem.Id,
             davItem.Path,
             ids,
-            flight);
+            flight,
+            fromStreaming);
         if (!_queue.Writer.TryWrite(item))
         {
             RetainSegmentIds(davItem.Id, davItem.Path, ids);
@@ -456,37 +458,21 @@ public partial class Par2RepairService : BackgroundService
     {
         try
         {
-            await foreach (var item in _queue.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
+            await foreach (var first in _queue.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
             {
-                try
+                if (first.FromStreaming)
                 {
-                    await ProcessQueueItemAsync(item, stoppingToken).ConfigureAwait(false);
+                    await ProcessQueueItemSafeAsync(first, stoppingToken).ConfigureAwait(false);
+                    continue;
                 }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    CancelFlight(item.DavItemId, item.Flight, stoppingToken);
-                    throw;
-                }
-                catch (Exception exception) when (exception is MissingFilePayloadException or CorruptedBlobPayloadException)
-                {
-                    _queuedOrRunning.TryRemove(item.DavItemId, out _);
-                    CompleteFlight(item.DavItemId, item.Flight, Par2RepairOutcome.NotRepaired);
-                    Log.Warning("PAR2 background repair cannot read the payload for {Path}. Reason: {Reason}", item.Path, exception.Message);
-                    Log.Debug(exception, "PAR2 streaming payload failure for {Path}", item.Path);
-                }
-                catch (Exception e) when (e is not OutOfMemoryException)
-                {
-                    _queuedOrRunning.TryRemove(item.DavItemId, out _);
-                    CompleteFlight(item.DavItemId, item.Flight, Par2RepairOutcome.NotRepaired);
-                    e.LogWarningKnownOrStack("PAR2 background repair worker failed for {Path}", item.Path);
-                }
-                catch (OutOfMemoryException oom)
-                {
-                    _queuedOrRunning.TryRemove(item.DavItemId, out _);
-                    CompleteFlight(item.DavItemId, item.Flight, Par2RepairOutcome.NotRepaired);
-                    OomDiagnostics.LogHeapStateOnOom(oom, "PAR2 background repair worker");
-                    Log.Warning("PAR2 background repair worker deferred after exhausting managed memory. Path: {Path}", item.Path);
-                }
+                // Fork (read-ahead repair): streaming-triggered repairs jump ahead of
+                // queued health-check jobs. OrderByDescending is stable, so FIFO order
+                // is preserved within each priority group.
+                var batch = new List<RepairWorkItem> { first };
+                while (_queue.Reader.TryRead(out var queued))
+                    batch.Add(queued);
+                foreach (var item in batch.OrderByDescending(static workItem => workItem.FromStreaming))
+                    await ProcessQueueItemSafeAsync(item, stoppingToken).ConfigureAwait(false);
             }
         }
         finally
@@ -496,6 +482,39 @@ public partial class Par2RepairService : BackgroundService
                 _queuedOrRunning.TryRemove(abandoned.DavItemId, out _);
                 CancelFlight(abandoned.DavItemId, abandoned.Flight, stoppingToken);
             }
+        }
+    }
+
+    private async Task ProcessQueueItemSafeAsync(RepairWorkItem item, CancellationToken stoppingToken)
+    {
+        try
+        {
+            await ProcessQueueItemAsync(item, stoppingToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            CancelFlight(item.DavItemId, item.Flight, stoppingToken);
+            throw;
+        }
+        catch (Exception exception) when (exception is MissingFilePayloadException or CorruptedBlobPayloadException)
+        {
+            _queuedOrRunning.TryRemove(item.DavItemId, out _);
+            CompleteFlight(item.DavItemId, item.Flight, Par2RepairOutcome.NotRepaired);
+            Log.Warning("PAR2 background repair cannot read the payload for {Path}. Reason: {Reason}", item.Path, exception.Message);
+            Log.Debug(exception, "PAR2 streaming payload failure for {Path}", item.Path);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            _queuedOrRunning.TryRemove(item.DavItemId, out _);
+            CompleteFlight(item.DavItemId, item.Flight, Par2RepairOutcome.NotRepaired);
+            e.LogWarningKnownOrStack("PAR2 background repair worker failed for {Path}", item.Path);
+        }
+        catch (OutOfMemoryException oom)
+        {
+            _queuedOrRunning.TryRemove(item.DavItemId, out _);
+            CompleteFlight(item.DavItemId, item.Flight, Par2RepairOutcome.NotRepaired);
+            OomDiagnostics.LogHeapStateOnOom(oom, "PAR2 background repair worker");
+            Log.Warning("PAR2 background repair worker deferred after exhausting managed memory. Path: {Path}", item.Path);
         }
     }
 
@@ -615,7 +634,7 @@ public partial class Par2RepairService : BackgroundService
                 .Select(report => report.Item1).Where(id => !string.IsNullOrWhiteSpace(id))
                 .Distinct(StringComparer.Ordinal).ToArray();
             if (multipartIds.Length > 0)
-                await EnqueueAsync(davItem, multipartIds, ct).ConfigureAwait(false);
+                await EnqueueAsync(davItem, multipartIds, fromStreaming: true, ct: ct).ConfigureAwait(false);
             return;
         }
 
@@ -697,7 +716,7 @@ public partial class Par2RepairService : BackgroundService
 
         var enqueueIds = missingIds.Concat(corruptIds).Distinct(StringComparer.Ordinal).ToArray();
         if (enqueueIds.Length > 0)
-            await EnqueueAsync(davItem, enqueueIds, ct).ConfigureAwait(false);
+            await EnqueueAsync(davItem, enqueueIds, fromStreaming: true, ct: ct).ConfigureAwait(false);
     }
 
     internal Task ProcessCorruptionEventForTestsAsync(string path, string segmentId, CancellationToken ct) =>
@@ -1673,7 +1692,7 @@ public partial class Par2RepairService : BackgroundService
             return;
         }
 
-        await EnqueueAsync(davItem, [], ct).ConfigureAwait(false);
+        await EnqueueAsync(davItem, [], ct: ct).ConfigureAwait(false);
 
         // A blocked requeue (failure cooldown, full queue, repair disabled) leaves no
         // flight that could drain the retained entry, so it would sit for the process
@@ -1722,7 +1741,8 @@ public partial class Par2RepairService : BackgroundService
         Guid DavItemId,
         string Path,
         string[] MissingSegmentIds,
-        RepairFlight Flight);
+        RepairFlight Flight,
+        bool FromStreaming = false);
 
     private sealed record ZeroFillEvent(string Path);
 

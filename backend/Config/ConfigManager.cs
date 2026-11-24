@@ -582,6 +582,10 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
                     RequireLongInRange(item.ConfigName, value, 1, 60 * 24);
                     break;
 
+                case ConfigKeys.RepairReadAheadWindowSeconds:
+                    RequireLongInRange(item.ConfigName, value, 5, 600);
+                    break;
+
                 case ConfigKeys.WatchtowerListSourceMaxResponseBytes:
                     RequireLongInRange(
                         item.ConfigName,
@@ -670,6 +674,7 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
                 case ConfigKeys.RepairEnable:
                 case ConfigKeys.RepairPar2Enabled:
                 case ConfigKeys.RepairPar2PreferredOverArr:
+                case ConfigKeys.RepairReadAheadEnabled:
                 case ConfigKeys.RepairHealthcheckAging:
                 case ConfigKeys.RepairAutoRemoveUnlinkedOnly:
                 case ConfigKeys.RcloneRcEnabled:
@@ -1609,6 +1614,24 @@ public class ConfigManager : IConfigReader, IConfigUpdater, IConfigChangeSource
         if (!IsBackgroundRepairsMasterEnabled()) return false;
         var par2Value = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.RepairPar2Enabled));
         return par2Value != null && bool.Parse(par2Value);
+    }
+
+    /// <summary>
+    /// Fork (read-ahead repair): when on, an active stream prefetches far enough ahead of
+    /// its read head that holes are discovered and PAR2-repaired before the reader reaches
+    /// them. Requires PAR2 gap repair; off by default.
+    /// </summary>
+    public bool IsReadAheadRepairEnabled()
+    {
+        if (!IsPar2RepairEnabled()) return false;
+        var value = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.RepairReadAheadEnabled));
+        return value != null && bool.Parse(value);
+    }
+
+    public int GetReadAheadRepairWindowSeconds()
+    {
+        var value = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.RepairReadAheadWindowSeconds));
+        return int.TryParse(value, out var seconds) ? Math.Clamp(seconds, 5, 600) : 45;
     }
 
     public bool IsDegradedToleranceEnabled()
