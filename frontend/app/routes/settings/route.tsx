@@ -200,6 +200,8 @@ const defaultConfig = {
   "repair.par2-max-patch-gb": "4",
   "repair.par2-fetch-concurrency": "2",
   "repair.par2-failure-cooldown-hours": "6",
+  "repair.readahead.enabled": "false",
+  "repair.readahead.window-seconds": "45",
   "repair.read-hold-minutes": "15",
   "repair.degraded-tolerance-enabled": "true",
   "repair.corruption-tracking-enabled": "true",

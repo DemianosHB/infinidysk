@@ -302,7 +302,7 @@ public sealed class Par2RepairServiceCorruptSourceTests : IAsyncLifetime
             await release.Service.EnqueueAsync(
                 release.Item,
                 [release.ContentSegmentIds[0]],
-                CancellationToken.None);
+                ct: CancellationToken.None);
             await sourceReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
             using var canceledJoinerCts = new CancellationTokenSource();
@@ -387,7 +387,7 @@ public sealed class Par2RepairServiceCorruptSourceTests : IAsyncLifetime
             await release.Service.EnqueueAsync(
                 release.Item,
                 [release.ContentSegmentIds[0], release.ContentSegmentIds[1]],
-                CancellationToken.None);
+                ct: CancellationToken.None);
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             while (release.Service.GetDiagnosticSnapshot().TotalInfeasible == 0)
                 await Task.Delay(25, timeout.Token);

@@ -197,8 +197,8 @@ public sealed class DavNzbFileCorruptionRecordTests : IAsyncLifetime
         var (item, _) = await AddFileAsync(segments);
         var service = new Par2RepairService(_config, null!, new RepairPatchStore(Path.Join(_configRoot, "patches-retain"), 1024 * 1024));
 
-        await service.EnqueueAsync(item, [segments[0]], CancellationToken.None);
-        await service.EnqueueAsync(item, [segments[1], segments[2]], CancellationToken.None);
+        await service.EnqueueAsync(item, [segments[0]], ct: CancellationToken.None);
+        await service.EnqueueAsync(item, [segments[1], segments[2]], ct: CancellationToken.None);
 
         var retained = service.PeekRetainedSegmentIdsForTests(item.Id);
         Assert.Contains(segments[1], retained);
@@ -217,8 +217,8 @@ public sealed class DavNzbFileCorruptionRecordTests : IAsyncLifetime
         var (item, _) = await AddFileAsync(segments);
         var service = new Par2RepairService(_config, null!, new RepairPatchStore(Path.Join(_configRoot, "patches-cooldown"), 1024 * 1024));
 
-        await service.EnqueueAsync(item, [segments[0]], CancellationToken.None);
-        await service.EnqueueAsync(item, [segments[1]], CancellationToken.None);
+        await service.EnqueueAsync(item, [segments[0]], ct: CancellationToken.None);
+        await service.EnqueueAsync(item, [segments[1]], ct: CancellationToken.None);
         Assert.NotEmpty(service.PeekRetainedSegmentIdsForTests(item.Id));
 
         service.ReleaseQueuedOrRunningForTests(item.Id);
@@ -507,6 +507,7 @@ public sealed class DavNzbFileCorruptionRecordTests : IAsyncLifetime
         public override Task EnqueueAsync(
             DavItem davItem,
             IReadOnlyList<string> missingSegmentIds,
+            bool fromStreaming = false,
             CancellationToken ct = default)
         {
             Enqueued.Add(missingSegmentIds.ToArray());

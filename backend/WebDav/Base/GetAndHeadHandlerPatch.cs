@@ -93,6 +93,13 @@ public class GetAndHeadHandlerPatch : IRequestHandler
         if (range is { Start: not null, End: not null })
             RangeContext.SetReadBudget(range.End.Value - range.Start.Value + 1);
 
+        // Fork (read-ahead repair): publish the opt-in prefetch-widening settings so the
+        // stream constructed below can widen its window ahead of the read head.
+        RangeContext.SetReadAheadRepair(
+            _configManager.IsReadAheadRepairEnabled()
+                ? new RangeContext.ReadAheadRepairOptions(true, _configManager.GetReadAheadRepairWindowSeconds())
+                : null);
+
         // Bound the initial backend wait (store lookup + stream open / first segment)
         // so a stuck provider fails the HTTP request instead of blocking until the
         // client disconnects. Cleared once body copy starts — mid-stream stalls use

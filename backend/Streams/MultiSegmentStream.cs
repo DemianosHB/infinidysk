@@ -62,6 +62,12 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream, ISegmentIssuePr
     private int _activeBatches;
     private readonly InFlightArticleBudget? _budget;
     private long _inFlightPrefetchBytes;
+    // Fork (read-ahead repair): opt-in window ahead of the read head for hole discovery,
+    // plus the delivery-rate samples that size it in bytes.
+    private readonly NzbWebDAV.WebDav.Requests.RangeContext.ReadAheadRepairOptions? _readAheadRepair;
+    private long _rateSampleTimestamp;
+    private long _rateSampleBytes;
+    private double _deliveryRateBytesPerSecond;
     // Producer-only enqueue progress, read by ShouldStopPrefetch.
     private int _segmentsEnqueued;
     private long _enqueuedBytes;
@@ -901,6 +907,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream, ISegmentIssuePr
         _knownMissingSegmentIndices = knownMissingSegmentIndices;
         _fileName = string.IsNullOrEmpty(fileName) ? "unknown" : fileName;
         _readBudget = readBudget ?? NzbWebDAV.WebDav.Requests.RangeContext.GetReadBudget();
+        _readAheadRepair = NzbWebDAV.WebDav.Requests.RangeContext.GetReadAheadRepair();
         _budget = inFlightArticleBudget ?? InFlightArticleBudget.Current;
         _bodyPipelineBatchSize = Math.Min(Math.Max(1, bodyPipelineBatchWidth), articleBufferSize);
         _taskWindowSize = CalculateTaskWindowSize(
@@ -1537,7 +1544,9 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream, ISegmentIssuePr
     {
         if (_demandGate is { } demandGate)
             await demandGate.WaitForDemandAsync(cancellationToken).ConfigureAwait(false);
-        if (_prefetchByteCeiling <= 0) return;
+        // No cap at all only when the stock ceiling is zero and read-ahead repair has no
+        // window yet; a zero dynamic ceiling (speculative allowance exhausted) still waits.
+        if (_prefetchByteCeiling <= 0 && CurrentPrefetchByteCeiling <= 0) return;
 
         while (Interlocked.Read(ref _inFlightPrefetchBytes) >= CurrentPrefetchByteCeiling)
         {
@@ -1555,11 +1564,59 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream, ISegmentIssuePr
     // Like AltMount, only the opening burst is capped: once the reader takes its first segment
     // the full window opens, so low-bitrate playback is not starved by a consumption-paced ramp.
     // A volume opened ahead of the reader skips the ramp but stays within the shared window.
-    internal long CurrentPrefetchByteCeiling => Interlocked.Read(ref _consumedPrefetchBytes) > 0
-        ? _prefetchByteCeiling
-        : _speculativeReadAhead is { } speculative
-            ? Math.Min(_prefetchByteCeiling, speculative.AvailableBytes)
-            : _initialPrefetchByteCeiling;
+    // Fork (read-ahead repair): when enabled, the ceiling also widens to delivery rate ×
+    // window seconds (capped by the in-flight article budget) so holes ahead of the read
+    // head are fetched — and reported for PAR2 repair — before the reader reaches them.
+    internal long CurrentPrefetchByteCeiling
+    {
+        get
+        {
+            var baseCeiling = Interlocked.Read(ref _consumedPrefetchBytes) > 0
+                ? _prefetchByteCeiling
+                : _speculativeReadAhead is { } speculative
+                    ? Math.Min(_prefetchByteCeiling, speculative.AvailableBytes)
+                    : _initialPrefetchByteCeiling;
+            // Never widen a successor volume the reader has not reached yet: it must stay
+            // within the shared multipart read-ahead window.
+            if (_readAheadRepair is { Enabled: true } repair
+                && (baseCeiling == _prefetchByteCeiling || _speculativeReadAhead is null))
+            {
+                var cap = _budget?.CapBytes ?? long.MaxValue;
+                var windowBytes = ComputeReadAheadWindowBytes(
+                    Volatile.Read(ref _deliveryRateBytesPerSecond), repair.WindowSeconds, cap);
+                if (windowBytes > baseCeiling)
+                    return windowBytes;
+            }
+            return baseCeiling;
+        }
+    }
+
+    internal static long ComputeReadAheadWindowBytes(double bytesPerSecond, int windowSeconds, long capBytes)
+    {
+        if (bytesPerSecond <= 0 || windowSeconds <= 0 || capBytes <= 0) return 0;
+        var window = bytesPerSecond * windowSeconds;
+        return window >= capBytes ? capBytes : (long)window;
+    }
+
+    internal void SetDeliveryRateForTests(double bytesPerSecond) =>
+        Volatile.Write(ref _deliveryRateBytesPerSecond, bytesPerSecond);
+
+    private void SampleDeliveryRate()
+    {
+        if (_readAheadRepair is not { Enabled: true }) return;
+        var now = Stopwatch.GetTimestamp();
+        var bytes = Interlocked.Read(ref _consumedPrefetchBytes);
+        var lastTicks = Interlocked.Exchange(ref _rateSampleTimestamp, now);
+        var lastBytes = Interlocked.Exchange(ref _rateSampleBytes, bytes);
+        if (lastTicks == 0) return;
+        var elapsed = Stopwatch.GetElapsedTime(lastTicks, now);
+        if (elapsed < TimeSpan.FromMilliseconds(250)) return;
+        var instant = (bytes - lastBytes) / elapsed.TotalSeconds;
+        var current = Volatile.Read(ref _deliveryRateBytesPerSecond);
+        Volatile.Write(
+            ref _deliveryRateBytesPerSecond,
+            current <= 0 ? instant : current + 0.25 * (instant - current));
+    }
 
     private void ReleaseInFlightPrefetchBytes(long plannedBytes)
     {
@@ -2862,6 +2919,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream, ISegmentIssuePr
 
                 Interlocked.Add(ref _consumedPrefetchBytes, result.PlannedBytes);
                 ReleaseInFlightPrefetchBytes(result.PlannedBytes);
+                SampleDeliveryRate();
                 // Ignore the first delivered segment (startup warm-up).
                 var observeReadiness = _deliveredSegments++ > 0;
                 // An incremental segment is only ready if its body bytes also arrive before

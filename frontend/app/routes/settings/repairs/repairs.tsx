@@ -588,6 +588,55 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
               />
             </div>
           </ManagedSetting>
+          <ManagedSetting
+            configKeys={["repair.readahead.enabled", "repair.readahead.window-seconds"]}
+            className="grid grid-cols-1 gap-4 lg:col-span-2 lg:grid-cols-2"
+          >
+            <Tooltip content="Fetch articles far enough ahead of the playback position that missing or corrupt segments are discovered and PAR2-repaired before the player reaches them. Off by default; requires PAR2 background repair.">
+              <Toggle
+                id="readahead-repair-enabled-checkbox"
+                className="cursor-pointer gap-2 p-0"
+                checked={
+                  isRepairEnabled &&
+                  (config["repair.par2-enabled"] ?? "false") === "true" &&
+                  (config["repair.readahead.enabled"] ?? "false") === "true"
+                }
+                disabled={!isRepairEnabled || (config["repair.par2-enabled"] ?? "false") !== "true"}
+                onChange={(e) =>
+                  setNewConfig({ ...config, "repair.readahead.enabled": "" + e.target.checked })
+                }
+                label={<span className="text-sm text-base-content">Read-ahead repair</span>}
+              />
+            </Tooltip>
+            <div className="space-y-2">
+              <label
+                className="block text-sm font-medium text-base-content"
+                htmlFor="readahead-window-seconds-input"
+              >
+                Read-ahead window (seconds)
+              </label>
+              <Input
+                className={`w-full max-w-48 ${!isIntegerInRange(config["repair.readahead.window-seconds"] ?? "45", 5, 600) ? "input-error" : ""}`}
+                type="text"
+                id="readahead-window-seconds-input"
+                placeholder="45"
+                disabled={
+                  !isRepairEnabled ||
+                  (config["repair.par2-enabled"] ?? "false") !== "true" ||
+                  (config["repair.readahead.enabled"] ?? "false") !== "true"
+                }
+                value={config["repair.readahead.window-seconds"] ?? ""}
+                onChange={(e) =>
+                  setNewConfig({ ...config, "repair.readahead.window-seconds": e.target.value })
+                }
+              />
+              <p className="text-[11px] leading-relaxed text-base-content/45">
+                How far ahead of the read head articles are fetched so holes can be repaired in time
+                (5&ndash;600). The window is sized from the measured playback bitrate and capped by
+                the article RAM budget.
+              </p>
+            </div>
+          </ManagedSetting>
         </SettingsCard>
 
         <SettingsCard
@@ -769,6 +818,8 @@ export function isRepairsSettingsUpdated(
     config["repair.par2-fetch-concurrency"] !== newConfig["repair.par2-fetch-concurrency"] ||
     config["repair.par2-failure-cooldown-hours"] !==
       newConfig["repair.par2-failure-cooldown-hours"] ||
+    config["repair.readahead.enabled"] !== newConfig["repair.readahead.enabled"] ||
+    config["repair.readahead.window-seconds"] !== newConfig["repair.readahead.window-seconds"] ||
     config["repair.degraded-tolerance-enabled"] !==
       newConfig["repair.degraded-tolerance-enabled"] ||
     config["repair.corruption-tracking-enabled"] !==
@@ -810,6 +861,11 @@ export function isRepairsSettingsValid(newConfig: Record<string, string>) {
   const readHold = newConfig["repair.read-hold-minutes"];
   const readHoldOk =
     readHold === undefined || readHold === "" || isIntegerInRange(readHold, 0, 1440);
+  const readAheadWindow = newConfig["repair.readahead.window-seconds"];
+  const readAheadWindowOk =
+    readAheadWindow === undefined ||
+    readAheadWindow === "" ||
+    isIntegerInRange(readAheadWindow, 5, 600);
   const bytePercentOk =
     bytePercent === undefined || bytePercent === "" || isPositiveNumber(bytePercent);
   const par2Ok = par2NumericKeys.every((key) => {
@@ -825,6 +881,7 @@ export function isRepairsSettingsValid(newConfig: Record<string, string>) {
     workersOk &&
     autoRemoveOk &&
     readHoldOk &&
+    readAheadWindowOk &&
     bytePercentOk &&
     par2Ok &&
     degradedOk &&
