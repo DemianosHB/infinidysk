@@ -1,0 +1,37 @@
+name: v1 Auto-delete merged branch
+
+# Fork (DemianosHB): after a PR is merged into the default branch (v1), delete
+# its head branch automatically. No-op for closed-unmerged PRs, for PRs from
+# other forks, and when the head branch is the default branch itself.
+# Note: GitHub also offers the built-in repo setting "Automatically delete head
+# branches" (Settings -> General); this workflow enforces the same in code.
+
+on:
+  pull_request:
+    types: [closed]
+
+concurrency:
+  group: auto-delete-branch-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  delete-merged-head:
+    name: Delete merged PR head branch
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref != github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete head branch ${{ github.event.pull_request.head.ref }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "PR #${{ github.event.pull_request.number }} merged into ${{ github.event.pull_request.base.ref }}; deleting head branch '${{ github.event.pull_request.head.ref }}'"
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/${{ github.event.pull_request.head.ref }}" \
+            || echo "Head ref already gone (deleted manually or by a previous run); nothing to do."
