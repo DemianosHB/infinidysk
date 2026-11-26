@@ -18,6 +18,9 @@ jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    # The rust leg skips while no Rust code exists (CodeQL finalize is fatal on zero
+    # Rust files); CI-only PRs before the workspace lands on the branch stay green.
+    if: matrix.language != 'rust' || hashFiles('rust/Cargo.toml') != ''
     timeout-minutes: 120
     permissions:
       security-events: write
