@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 fancy-regex.workspace = true
 jiff.workspace = true
+serde.workspace = true
 unicode-normalization.workspace = true
 
 [lints]

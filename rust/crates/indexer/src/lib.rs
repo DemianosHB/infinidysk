@@ -19,9 +19,15 @@
 //!   `socks5h://` (remote DNS at the proxy), mirroring the v1 `ProxyHttpClientPool`.
 
 pub mod client;
+pub mod filter;
+pub mod http;
+pub mod models;
+pub mod prowlarr;
+pub mod sync;
 mod xml;
 
 pub use client::NewznabClient;
+pub use prowlarr::{ProwlarrClient, ProwlarrIndexer, ProwlarrSystemStatus};
 
 /// Errors of indexer requests. Messages are controlled and never embed the request URL,
 /// the API key, or response body excerpts (the URL query carries the API key).
@@ -53,4 +59,25 @@ pub enum Error {
     /// Newznab `<error code="…" description="…"/>` root element: `"[code] description"`.
     #[error("{0}")]
     Indexer(String),
+    // --- Prowlarr client ---
+    #[error(
+        "Prowlarr URL must be an absolute http(s) URL without credentials, query, or fragment."
+    )]
+    ProwlarrInvalidBaseUrl,
+    #[error("Prowlarr rejected the API key.")]
+    ProwlarrUnauthorized,
+    #[error("Prowlarr returned HTTP {0}.")]
+    ProwlarrStatus(reqwest::StatusCode),
+    #[error("Prowlarr returned an indexer without a valid ID or name.")]
+    ProwlarrInvalidIndexer,
+    #[error("Prowlarr returned an empty response.")]
+    ProwlarrEmpty,
+    #[error("Prowlarr returned invalid JSON.")]
+    ProwlarrInvalidJson,
+    #[error("Prowlarr {operation} request to {base_url} timed out after {secs}s.")]
+    ProwlarrTimeout {
+        operation: &'static str,
+        base_url: String,
+        secs: u64,
+    },
 }

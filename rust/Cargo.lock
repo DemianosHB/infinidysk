@@ -1625,6 +1625,8 @@ dependencies = [
  "jiff 1.0.2",
  "quick-xml",
  "reqwest",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
@@ -1720,6 +1722,7 @@ version = "0.0.0"
 dependencies = [
  "fancy-regex",
  "jiff 1.0.2",
+ "serde",
  "unicode-normalization",
 ]
 
