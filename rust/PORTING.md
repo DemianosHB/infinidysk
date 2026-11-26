@@ -36,7 +36,8 @@ cargo clippy --workspace --all-targets -- -D warnings   # full gate, or per PR C
 |---|---|---|
 | SOCKS5 outbound proxy + bypass | `general.socks5-proxy`, `general.socks5-proxy-bypass`; `backend/Utils/OutboundProxy.cs`, `ProxyBypassMatcher.cs`, `libs/UsenetSharp/Clients/UsenetClient.Socks5.cs` | **Ported** — `crates/proxy` (URL parse, bypass matcher, local-destination rules, RFC 1928/1929 handshake), wired into the NNTP dial path (`crates/nntp`) and config (`proxy.socks5`, `proxy.socks5_bypass`). Follow-up: route the reqwest HTTP clients through it too (reqwest `socks` feature). |
 | Read-ahead PAR2 repair | `repair.readahead.enabled`, `repair.readahead.window-seconds`; `backend/Streams/MultiSegmentStream.cs` (`ComputeReadAheadWindowBytes`, `SampleDeliveryRate`), `backend/Services/Repair/Par2RepairTriggerSink.cs` | **Ported (first slice)** — `crates/stream/src/readahead.rs` (window bytes + delivery-rate EMA, v1 test cases ported), `SegmentReader::with_read_ahead` widens the prefetch window to rate × window capped by the article budget; config `repair.readahead_enabled` / `repair.readahead_window_seconds`, applied via `Vfs::set_read_ahead_repair`, gated on the `par2-repair` experiment (v1: `repair.par2-enabled`). Follow-up: streaming-triggered repairs jumping the health-check repair queue (v1 queue jump in `Par2RepairService`). |
-| Preferred audio languages per profile | profiles + watchdog fallback ordering | Not started — needs the search/watchdog stack (see below). |
+| Search result domain logic (language detection, quality parse, result ordering) | `backend/Utils/AudioLanguagePreference.cs`, `SubtitlePreference.cs`, `ReleaseQuality.cs`, `ProfileResultSorter.cs`, `ProfileConfig.QualitySortMode` | **Ported (pure domain logic)** — new crate `crates/search` (`infinidysk-search`): `language` (token fold/alias, subtitle rank), `audio` (title-token detection with lookaround guards, indexer-attribute-wins, preferred-language rank bias), `quality` (resolution/source ranks), `sorter` (`QualitySortMode` + stable language→quality→grabs→size→posted ordering). V1 test cases ported as characterization tests (37 tests). Not yet: the HTTP/indexer clients, profiles, addon routes, config wiring. New deps flagged: `fancy-regex` (v1 parsing uses lookaround, which `regex` cannot), `unicode-normalization` (v1 folds accents via NFD). |
+| Preferred audio languages per profile | profiles + watchdog fallback ordering | Domain logic ported (`crates/search`); config/profile wiring pending — needs the search/profile stack (Phase 2). |
 | Stall negative marking (play fallback) | `play.stall-negative-marking-*`; watchdog/play fallback | Not started — needs the watchdog/play-fallback stack. |
 
 ## v1 features upstream 2.x does not plan (the reason this fork ports them here)
@@ -50,11 +51,18 @@ The v1 C# code on branch `v1` is the only specification for them:
 `backend/Api/`. Rough size in v1 (including tests, overlapping): search/indexer ~33k
 LOC, watchtower/preflight/warden ~18k LOC, addon ~2.6k LOC.
 
-Planned order: Phase 1 = SOCKS5 proxy + read-ahead PAR2 (done here); Phase 2 = search /
-indexers / Prowlarr / profiles + addon routes + preferred-languages bias; Phase 3 =
-Watchdog / Preflight / Warden / Watchtower + stall negative marking; Phase 4 = UI port
-into `ui/`, extension of the one-time C# `/config` importer (`crates/import`) for the
-fork keys, CI and images for the Rust line.
+Planned order (decided with the maintainer): Phase 1 = SOCKS5 proxy + read-ahead PAR2
+(done); **Phase 2 = search / indexers / Prowlarr / profiles + addon routes +
+preferred-languages bias (in progress — pure domain logic done in `crates/search`);
+Phase 3 = Watchdog / Preflight / Warden / Watchtower + stall negative marking; then
+release + provider failover; Phase 4 = UI port into `ui/`, extension of the one-time C#
+`/config` importer (`crates/import`) for the fork keys, CI and images for the Rust
+line.** Failover rule (decided): read-ahead PAR2 repair runs first; failover to another
+release/provider only engages when the read-ahead repair did not fix the failure
+(repair-first, failover-second). Release failover must work mid-stream: if the currently
+streamed release errors at all providers, switch to another release during the running
+stream (the swap mechanism lives in the vfs fence/`ReadVersion`/`LiveReader` machinery;
+the candidate knowledge comes from Phase 2/3).
 
 ## v1 config key → Rust setting mapping
 

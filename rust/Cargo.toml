@@ -20,6 +20,7 @@ base64 = "0.23.1"
 bytes = "1.12.1"
 cmake = "0.1"
 crc32fast = "1.5.2"
+fancy-regex = "0.16" # v1 language/quality parsing uses lookaround; `regex` cannot
 flate2 = "1.1.10"
 futures-util = { version = "0.3.34", default-features = false }
 hmac = "0.13.0"
@@ -64,6 +65,7 @@ tower = { version = "0.5.3", default-features = false, features = ["util"] }
 rust-embed = { version = "8.13.0", features = ["mime-guess"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt", "std"] }
+unicode-normalization = "0.1" # v1 language folding strips accents via NFD
 utoipa = { version = "6.0.0", features = ["uuid"] }
 uuid = { version = "1.28.0", features = ["serde", "v4", "v7"] }
 webpki-roots = "1.0.9"
@@ -83,6 +85,7 @@ infinidysk-nntp = { path = "crates/nntp" }
 infinidysk-par2 = { path = "crates/par2" }
 infinidysk-proxy = { path = "crates/proxy" }
 infinidysk-queue = { path = "crates/queue" }
+infinidysk-search = { path = "crates/search" }
 infinidysk-stream = { path = "crates/stream" }
 infinidysk-testkit = { path = "crates/testkit" }
 infinidysk-vfs = { path = "crates/vfs" }
