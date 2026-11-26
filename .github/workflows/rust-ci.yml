@@ -1,0 +1,122 @@
+name: Rust CI
+
+# The Rust port of this fork lives on the `rust` branch under rust/ (see rust/PORTING.md);
+# the v1 (.NET) line keeps its own v1-* workflows. The workflow is path-filtered on
+# purpose and is NOT a required check: .NET-only PRs must not be blocked when it skips.
+# It only triggers on rust/** changes, so CI-only PRs on a branch without the
+# workspace never start it; run it manually via workflow_dispatch.
+on:
+  pull_request:
+    branches: [rust]
+    paths:
+      - "rust/**"
+  push:
+    branches: [rust]
+    paths:
+      - "rust/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain (rust/rust-toolchain.toml)
+        working-directory: rust
+        run: rustup toolchain install
+      - name: cargo fmt --check
+        working-directory: rust
+        run: cargo fmt --all --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain (rust/rust-toolchain.toml)
+        working-directory: rust
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: cargo clippy (warnings are errors)
+        working-directory: rust
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain (rust/rust-toolchain.toml)
+        working-directory: rust
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: cargo test --workspace
+        working-directory: rust
+        run: cargo test --workspace --locked
+
+  test-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 2s --health-timeout 5s --health-retries 15
+    env:
+      INFINIDYSK_TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain (rust/rust-toolchain.toml)
+        working-directory: rust
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: cargo test against PostgreSQL
+        working-directory: rust
+        run: cargo test -p infinidysk-db -p infinidysk -p infinidysk-import --locked
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: rust/Cargo.toml
+
+  build:
+    # The binary embeds the built UI (rust-embed), so build rust/ui first, like rust/Dockerfile.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: rust/ui/package-lock.json
+      - name: Build the UI
+        working-directory: rust/ui
+        run: npm ci && npm run build
+      - name: Install the pinned toolchain (rust/rust-toolchain.toml)
+        working-directory: rust
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: cargo build --release --locked
+        working-directory: rust
+        run: cargo build --release --locked
