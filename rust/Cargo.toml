@@ -39,7 +39,7 @@ quick-xml = "0.42.0"
 quick_cache = { version = "0.7.0", default-features = false }
 rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs"] }
 regex = "1.13.1"
-reqwest = { version = "0.13.5", default-features = false, features = ["json", "query", "rustls"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "query", "rustls", "socks"] } # socks: route indexer HTTP through the Phase-1 SOCKS5 proxy (socks5h = remote DNS)
 rustls = "0.23.45"
 semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -80,6 +80,7 @@ infinidysk-core = { path = "crates/core" }
 infinidysk-db = { path = "crates/db" }
 infinidysk-health = { path = "crates/health" }
 infinidysk-import = { path = "crates/import" }
+infinidysk-indexer = { path = "crates/indexer" }
 infinidysk-mount = { path = "crates/mount" }
 infinidysk-nntp = { path = "crates/nntp" }
 infinidysk-par2 = { path = "crates/par2" }
