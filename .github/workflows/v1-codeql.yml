@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - v1
+      - rust
   pull_request:
     branches:
       - v1
+      - rust
 
 concurrency:
   group: codeql-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -30,6 +32,8 @@ jobs:
           - language: javascript-typescript
             build-mode: none
           - language: actions
+            build-mode: none
+          - language: rust
             build-mode: none
 
     steps:
@@ -63,6 +67,11 @@ jobs:
         if: matrix.language == 'javascript-typescript'
         working-directory: frontend
         run: npm ci
+
+      - name: Set up the Rust toolchain (rust/rust-toolchain.toml)
+        if: matrix.language == 'rust'
+        working-directory: rust
+        run: rustup toolchain install
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4.39.4

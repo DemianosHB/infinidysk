@@ -430,7 +430,7 @@ When a task that changed the repo is done (unless the user explicitly said not t
 
 1. **Commit** any remaining changes using Conventional Commits (see above).
 2. **Push a new branch** — never commit or push to `v1` or `main`. Branch from `origin/v1` and name it `<type>/<short-kebab-description>` (e.g. `fix/db-startup-guards`, `chore/agents-post-task`).
-3. **Open a PR** to `v1` with `gh pr create --base v1` (short summary + test plan). Report the PR URL in the final response.
+3. **Open a PR** to `v1` with `gh pr create --base v1` (short summary + test plan). Report the PR URL in the final response. Changes for the Rust port (anything under `rust/`, `rust-ci.yml`, the cargo Dependabot entry, rust CodeQL) instead branch from `origin/rust` and open their PR to `rust` (`gh pr create --base rust`).
 4. **Reset the workspace** for the next agent: `git checkout v1` && `git pull`, then confirm a clean working tree on `v1`.
 
 ### Never merge pull requests
@@ -458,11 +458,12 @@ Skip this handoff if there are no local changes and nothing to push or PR. Do no
 
 ## CI/CD
 
-1.x lives on the `v1` branch; `main` is 2.x. Every workflow here is prefixed `v1-` (and its `name:` with `v1 `) so its runs stay apart from the 2.x workflows in the Actions list. Scheduled workflows only run on the default branch, so `v1` has none.
+1.x lives on the `v1` branch; `main` is 2.x. Every workflow here is prefixed `v1-` (and its `name:` with `v1 `) so its runs stay apart from the 2.x workflows in the Actions list. The Rust port of this fork is its own line on the **`rust` branch** (workspace under `rust/`, see `rust/PORTING.md`), with its own `rust-` prefixed workflow. Scheduled workflows only run on the default branch, so `v1` has none.
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `v1-ci.yml` | PRs and pushes to `v1` | Frontend lint/typecheck/build/tests + backend build/tests |
+| `v1-ci.yml` | PRs and pushes to `v1` (also PRs to `rust`; `rust/*` paths bypass the .NET lanes) | Frontend lint/typecheck/build/tests + backend build/tests |
+| `rust-ci.yml` | PRs and pushes to `rust` with paths `rust/**`, plus manual `workflow_dispatch` | Rust workspace: `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace` (+ PostgreSQL lane), `cargo deny`, release build (UI + binary). Not a required check while path-filtered |
 | `v1-codeql.yml` | PRs and pushes to `v1` | CodeQL security analysis for C#, TypeScript, and GitHub Actions |
 | `v1-mutation.yml` | PRs and pushes to `v1` (pilot paths) | Mutation testing of the pilot files |
 | `v1-release.yml` | Push to `v1` | release-please versioning; publishes Linux archives and stable Docker tags to every registry, plus `dev`, `rc` and `lts` tags to canonical GHCR and `dev` to Docker Hub; moves git `dev`, `rc` and `lts` tags (in that order); deletes versioned `v1.*-rc.*` pre-releases and their image tags; Discord announcement is LLM-summarized from `CHANGELOG.md` with raw-list fallback (`OPENAI_API_KEY` optional) |
