@@ -32,6 +32,44 @@ pub fn warden_fingerprint(
     Some(format!("wd1:{}", hex_lower(&hash[..16])))
 }
 
+/// v1 `WardenFingerprint.Backbone`: lowercased host without port, or "unknown".
+#[must_use]
+pub fn backbone(host: Option<&str>) -> String {
+    let Some(h) = host else { return "unknown".to_owned() };
+    let h = h.trim().to_lowercase();
+    let h = h.split(':').next().unwrap_or("");
+    if h.is_empty() { "unknown".to_owned() } else { h.to_owned() }
+}
+
+/// v1 `WardenFingerprint.RootDomain`: public-suffix-style root domain (2 labels, or 3 for
+/// 2-letter TLDs with a short second-level label), IPs verbatim, else "unknown".
+#[must_use]
+pub fn root_domain(host: Option<&str>) -> String {
+    let Some(h) = host else { return "unknown".to_owned() };
+    let h = h.trim().to_lowercase();
+    let h = h.split(':').next().unwrap_or("").trim_matches('.');
+    if h.is_empty() {
+        return "unknown".to_owned();
+    }
+    if h.parse::<std::net::IpAddr>().is_ok() {
+        return h.to_owned();
+    }
+    let labels: Vec<&str> = h.split('.').filter(|l| !l.is_empty()).collect();
+    if labels.len() <= 2 {
+        return h.to_owned();
+    }
+    let take = if labels[labels.len() - 1].len() == 2 && labels[labels.len() - 2].len() <= 3 {
+        3
+    } else {
+        2
+    };
+    if labels.len() <= take {
+        h.to_owned()
+    } else {
+        labels[labels.len() - take..].join(".")
+    }
+}
+
 /// v1 `ReleaseIdentity.Key`: the Warden fingerprint, else `"rk1:" + hex(sha256(nzbUrl)[:16])`.
 #[must_use]
 pub fn release_identity_key(

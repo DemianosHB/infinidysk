@@ -22,4 +22,4 @@ pub mod resolvers;
 mod service;
 
 pub use resolvers::{ResolverConfig, Resolvers};
-pub use service::{SearchOutcome, SearchService, SearchSettings};
+pub use service::{IsDeadHook, PreflightHook, SearchOutcome, SearchService, SearchSettings};

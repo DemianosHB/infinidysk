@@ -60,8 +60,8 @@ pub fn search_settings(s: &Settings) -> SearchSettings {
         exclude_patterns_raw: s.search.exclude_patterns.clone(),
         search_user_agent: s.search.search_user_agent.clone(),
         user_agent: s.search.user_agent.clone(),
-        watchtower_enabled: false, // Phase 3
-        warden_hide_dead: false,   // Phase 3
+        watchtower_enabled: false, // Phase 3 (Watchtower service)
+        warden_hide_dead: s.warden.hide_dead,
     }
 }
 
@@ -80,9 +80,29 @@ pub fn service_from_settings(s: &Settings) -> SearchService {
 
 /// Builds the router state: service from the current settings, plus config/auth handles.
 pub async fn build(config: Arc<RwLock<ConfigStore>>, auth: Arc<Auth>) -> Arc<Search> {
+    build_with_hooks(config, auth, None, None).await
+}
+
+/// [`build`] with the Phase-3 hooks: Warden dead-filter and the preflight starter.
+pub async fn build_with_hooks(
+    config: Arc<RwLock<ConfigStore>>,
+    auth: Arc<Auth>,
+    is_dead: Option<infinidysk_profiles::IsDeadHook>,
+    on_preflight: Option<infinidysk_profiles::PreflightHook>,
+) -> Arc<Search> {
     let settings = config.read().await.settings().clone();
+    let service = Arc::new(service_from_settings(&settings).with_hooks(is_dead, on_preflight));
+    build_with_service(config, auth, service)
+}
+
+/// [`build`] around an already-built service (so Phase-3 services can share it).
+pub fn build_with_service(
+    config: Arc<RwLock<ConfigStore>>,
+    auth: Arc<Auth>,
+    service: Arc<SearchService>,
+) -> Arc<Search> {
     Arc::new(Search {
-        service: Arc::new(service_from_settings(&settings)),
+        service,
         config,
         auth,
         coalescer: Arc::new(NzbFetchCoalescer::new()),

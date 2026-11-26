@@ -25,6 +25,8 @@ pub mod metrics;
 pub mod repair;
 pub mod repair_jobs;
 pub mod transfer;
+pub mod warden;
+pub mod watchdog;
 
 pub use backup::{FileCheck, check_file, latest_sqlite_schema};
 

@@ -628,7 +628,39 @@ pub async fn serve(
     );
     let sab =
         Sab::new(Arc::clone(&queue), Arc::clone(&config)).context("building the NZB fetcher")?;
-    let search = crate::search::build(Arc::clone(&config), Arc::clone(&auth)).await;
+    // Phase 3: Warden dead-list + preflight orchestrator, wired as search hooks.
+    let warden = crate::warden::build(db.clone(), Arc::clone(&config), Arc::clone(&auth));
+    let warden_task = tokio::spawn({
+        let warden = Arc::clone(&warden);
+        let cancel = cancel.clone();
+        async move { warden.run(cancel).await }
+    });
+    let search_service = Arc::new(crate::search::service_from_settings(&settings));
+    let preflight = crate::preflight::Orchestrator::new(crate::preflight::Parts {
+        config: Arc::clone(&config),
+        cache: Arc::new(crate::preflight::PreflightCache::new()),
+        sessions: Arc::new(crate::preflight::SessionRegistry::new()),
+        verifier: Arc::new(crate::preflight::FastVerifier::new(Arc::clone(&client))),
+        coalescer: Arc::new(crate::nzb_fetch::NzbFetchCoalescer::new()),
+        warden: Arc::clone(&warden),
+        negative: Arc::new(crate::preflight::CandidateNegativeCache::new()),
+        search: Arc::clone(&search_service),
+    });
+    {
+        let warden = Arc::clone(&warden);
+        let preflight = Arc::clone(&preflight);
+        let is_dead: infinidysk_profiles::IsDeadHook = Arc::new(move |size, poster, date| {
+            let fp = infinidysk_profiles::preferred::warden_fingerprint(size, poster, date);
+            warden.is_dead_cached(fp.as_deref())
+        });
+        let on_preflight: infinidysk_profiles::PreflightHook =
+            Arc::new(move |token, ty, id, cands| {
+                preflight.start(token, ty, id, cands);
+            });
+        search_service.install_hooks(Some(is_dead), Some(on_preflight));
+    }
+    let search =
+        crate::search::build_with_service(Arc::clone(&config), Arc::clone(&auth), search_service);
     let prowlarr_sync =
         crate::prowlarr_sync::build(Arc::clone(&config), Arc::clone(&search), Arc::clone(&auth));
     let prowlarr_sync_task = tokio::spawn({
@@ -781,6 +813,7 @@ pub async fn serve(
     let app = sab::router(Arc::new(sab))
         .merge(crate::search::router(Arc::clone(&search)))
         .merge(crate::prowlarr_sync::router(prowlarr_sync))
+        .merge(crate::warden::router(warden))
         .merge(hooks)
         .merge(crate::healthcheck::router(healthcheck))
         .merge(admin::router(admin, Arc::clone(&auth)))
@@ -831,6 +864,7 @@ pub async fn serve(
     warm_task.abort();
     optimize_task.abort();
     prowlarr_sync_task.abort();
+    warden_task.abort();
     database.stop().await;
     let _ = metrics_task.await;
     let _ = quota_task.await;

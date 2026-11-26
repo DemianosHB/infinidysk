@@ -99,8 +99,8 @@ pub struct SearchService {
     hit_tracker: HitTracker,
     cache: ResolutionCache,
     resolvers: Resolvers,
-    is_dead: Option<IsDeadHook>,
-    on_preflight: Option<PreflightHook>,
+    is_dead: std::sync::RwLock<Option<IsDeadHook>>,
+    on_preflight: std::sync::RwLock<Option<PreflightHook>>,
 }
 
 impl SearchService {
@@ -114,20 +114,30 @@ impl SearchService {
             hit_tracker: HitTracker::new(),
             cache: ResolutionCache::new(),
             resolvers,
-            is_dead: None,
-            on_preflight: None,
+            is_dead: std::sync::RwLock::new(None),
+            on_preflight: std::sync::RwLock::new(None),
         }
     }
 
     #[must_use]
     pub fn with_hooks(
-        mut self,
+        self,
         is_dead: Option<IsDeadHook>,
         on_preflight: Option<PreflightHook>,
     ) -> Self {
-        self.is_dead = is_dead;
-        self.on_preflight = on_preflight;
+        self.install_hooks(is_dead, on_preflight);
         self
+    }
+
+    /// Installs the Phase-3 hooks after construction (the app builds the orchestrator around
+    /// this service, so hooks cannot be passed to the constructor).
+    pub fn install_hooks(&self, is_dead: Option<IsDeadHook>, on_preflight: Option<PreflightHook>) {
+        if let Ok(mut g) = self.is_dead.write() {
+            *g = is_dead;
+        }
+        if let Ok(mut g) = self.on_preflight.write() {
+            *g = on_preflight;
+        }
     }
 
     /// Replaces the config snapshot (and recompiles the exclude patterns) when it changed.
@@ -694,7 +704,10 @@ impl SearchService {
             return Some(empty_outcome(profile_token, r#type, id));
         }
 
-        if warden_hide_dead && let Some(is_dead) = &self.is_dead {
+        if warden_hide_dead
+            && let Ok(g) = self.is_dead.read()
+            && let Some(is_dead) = g.as_ref()
+        {
             let alive: Vec<Candidate> = candidates
                 .iter()
                 .filter(|c| !is_dead(c.size, c.poster.as_deref(), c.usenet_date))
@@ -708,7 +721,10 @@ impl SearchService {
         let play_tokens = self
             .cache
             .add_group(candidates.clone(), r#type, profile_token, id, now);
-        if start_preflight && let Some(on_preflight) = &self.on_preflight {
+        if start_preflight
+            && let Ok(g) = self.on_preflight.read()
+            && let Some(on_preflight) = g.as_ref()
+        {
             on_preflight(profile_token, r#type, id, &candidates);
         }
 
