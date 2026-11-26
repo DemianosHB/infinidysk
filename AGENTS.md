@@ -466,7 +466,7 @@ Skip this handoff if there are no local changes and nothing to push or PR. Do no
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
 | `v1-ci.yml` | PRs and pushes to `v1` (also PRs to `rust`; `rust/*` paths bypass the .NET lanes) | Frontend lint/typecheck/build/tests + backend build/tests |
-| `rust-ci.yml` | PRs and pushes to `rust` with paths `rust/**`, plus manual `workflow_dispatch` | Rust workspace: `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace` (+ PostgreSQL lane), `cargo deny`, release build (UI + binary). Not a required check while path-filtered |
+| `rust-ci.yml` | PRs and pushes to `rust` with paths `rust/**`, plus manual `workflow_dispatch` | Rust workspace: `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace` on ubuntu-latest and macos-latest (upstream parity — vendored rapidyenc is native C++), PostgreSQL lane on ubuntu, `cargo deny`, release build (UI + binary). Not a required check while path-filtered |
 | `v1-codeql.yml` | PRs and pushes to `v1` | CodeQL security analysis for C#, TypeScript, and GitHub Actions |
 | `v1-mutation.yml` | PRs and pushes to `v1` (pilot paths) | Mutation testing of the pilot files |
 | `v1-release.yml` | Push to `v1` | release-please versioning; publishes Linux archives and stable Docker tags to every registry, plus `dev`, `rc` and `lts` tags to canonical GHCR and `dev` to Docker Hub; moves git `dev`, `rc` and `lts` tags (in that order); deletes versioned `v1.*-rc.*` pre-releases and their image tags; Discord announcement is LLM-summarized from `CHANGELOG.md` with raw-list fallback (`OPENAI_API_KEY` optional) |

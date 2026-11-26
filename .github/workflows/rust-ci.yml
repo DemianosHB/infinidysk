@@ -53,7 +53,13 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   test:
-    runs-on: ubuntu-latest
+    # Same OS matrix as upstream: the vendored rapidyenc is native C++ (cmake),
+    # so the workspace must also build and pass on macOS arm64.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - name: Install the pinned toolchain (rust/rust-toolchain.toml)

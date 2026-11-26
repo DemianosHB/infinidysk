@@ -7,12 +7,3 @@
 
 # Binary test archives — do not CRLF-convert
 tests/TestArchives/** binary
-
-# Binary archive/par2 fixtures in the Rust workspace — the blobs contain CR bytes;
-# `* text eol=lf` above would strip them on checkout and corrupt the archives
-rust/**/*.rar binary
-rust/**/*.7z binary
-rust/**/*.par2 binary
-rust/**/*.001 binary
-rust/**/*.002 binary
-rust/**/*.003 binary

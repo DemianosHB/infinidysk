@@ -1,0 +1,10 @@
+# Binary archive/par2 fixtures in the Rust workspace — the blobs contain CR
+# bytes; the root .gitattributes ('* text eol=lf') would strip them on checkout
+# and corrupt the archives (9 fixtures had to be restored from upstream for
+# exactly this reason).
+*.rar binary
+*.7z binary
+*.par2 binary
+*.001 binary
+*.002 binary
+*.003 binary
