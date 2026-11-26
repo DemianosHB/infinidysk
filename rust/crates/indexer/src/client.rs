@@ -2,22 +2,20 @@
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::future::Future;
 use std::time::Duration;
 
 use jiff::Timestamp;
-use reqwest::header::USER_AGENT;
-use reqwest::{Client, Response, Url};
+use reqwest::{Client, Url};
 use tokio_util::sync::CancellationToken;
 
 use infinidysk_search::result::SearchResult;
 
 use crate::Error;
+use crate::http;
 use crate::xml::{self, Element};
 
 const DEFAULT_USER_AGENT: &str = "NzbDav";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Newznab API client for one indexer. The HTTP client is rebuilt per request so a
 /// changed process-wide SOCKS5 proxy (published by config load/save) takes effect
@@ -71,14 +69,14 @@ impl NewznabClient {
     /// `t=caps`: true when the indexer answers 2xx with a `<caps>` document.
     pub async fn test(&self, ct: &CancellationToken) -> Result<bool, Error> {
         let params = [("t", "caps"), ("apikey", self.api_key.as_str())];
-        self.with_timeout(ct, async {
+        http::with_timeout(self.timeout, ct, async {
             let url = self.build_url(&params);
-            let http = self.http_client()?;
-            let resp = self.get(&http, &url, ct).await?;
+            let client = self.http_client()?;
+            let resp = http::get(&client, &url, &self.user_agent, ct, 2).await?;
             if !resp.status().is_success() {
                 return Ok(false);
             }
-            let body = read_bounded(resp, self.max_response_bytes).await?;
+            let body = http::read_bounded(resp, self.max_response_bytes).await?;
             let root = xml::parse(&body)?;
             Ok(root.has_descendant_named_ci("caps"))
         })
@@ -106,15 +104,15 @@ impl NewznabClient {
         let mut extra: Vec<(&str, &str)> =
             vec![("apikey", self.api_key.as_str()), ("extended", "1")];
         extra.extend_from_slice(params);
-        self.with_timeout(ct, async {
+        http::with_timeout(self.timeout, ct, async {
             let url = self.build_url(&extra);
-            let http = self.http_client()?;
-            let resp = self.get(&http, &url, ct).await?;
+            let client = self.http_client()?;
+            let resp = http::get(&client, &url, &self.user_agent, ct, 2).await?;
             let resp = resp.error_for_status().map_err(|e| match e.status() {
                 Some(s) => Error::Status(s),
                 None => Error::Transport,
             })?;
-            let body = read_bounded(resp, self.max_response_bytes).await?;
+            let body = http::read_bounded(resp, self.max_response_bytes).await?;
             let root = xml::parse(&body)?;
             if root.ns.is_none() && root.local == "error" {
                 let code = root.attr("code");
@@ -134,87 +132,12 @@ impl NewznabClient {
         .await
     }
 
-    /// The v1 `WithTimeoutAsync`: caller cancellation wins over the timeout budget.
-    async fn with_timeout<T, F: Future<Output = Result<T, Error>>>(
-        &self,
-        ct: &CancellationToken,
-        work: F,
-    ) -> Result<T, Error> {
-        if ct.is_cancelled() {
-            return Err(Error::Cancelled);
-        }
-        tokio::select! {
-            biased;
-            () = ct.cancelled() => Err(Error::Cancelled),
-            () = tokio::time::sleep(self.timeout) => Err(Error::Timeout(self.timeout.as_secs())),
-            r = work => r,
-        }
-    }
-
     /// One shared HTTP client per request, honoring the process-wide proxy for the
     /// indexer host: bypassed/local destinations stay direct (`no_proxy` also disables
     /// environment proxies, like the v1 strict direct handler).
     fn http_client(&self) -> Result<Client, Error> {
-        let mut builder = Client::builder().connect_timeout(CONNECT_TIMEOUT);
-        if self.skip_tls_verification {
-            // Intentional opt-in escape hatch for self-signed indexers, ported from v1's
-            // per-indexer `IndexerConfig.SkipTlsVerification`; off by default.
-            // codeql[rs/disabled-certificate-check]
-            builder = builder.danger_accept_invalid_certs(true);
-        }
-        let proxy = infinidysk_proxy::global();
-        let use_proxy = self
-            .api_url
-            .host_str()
-            .and_then(|host| proxy.proxy_for(host));
-        if let Some(socks) = use_proxy {
-            let host = socks.host();
-            let authority = if host.contains(':') {
-                format!("[{host}]")
-            } else {
-                host.to_owned()
-            };
-            let url = format!("socks5h://{authority}:{}", socks.port());
-            let proxy = reqwest::Proxy::all(url).map_err(|_| Error::InvalidBaseUrl)?;
-            builder = builder.proxy(proxy);
-        } else {
-            builder = builder.no_proxy();
-        }
-        builder.build().map_err(|_| Error::HttpClient)
-    }
-
-    /// GET with the configured User-Agent; retries exactly once on the first
-    /// transport-level failure (v1: `HttpRequestException`/`IOException` on attempt 0).
-    async fn get(
-        &self,
-        http: &Client,
-        url: &str,
-        ct: &CancellationToken,
-    ) -> Result<Response, Error> {
-        let mut attempt = 0u8;
-        loop {
-            let result = http
-                .get(url)
-                .header(USER_AGENT, &self.user_agent)
-                .send()
-                .await;
-            match result {
-                Ok(resp) => return Ok(resp),
-                Err(e) => {
-                    if ct.is_cancelled() {
-                        return Err(Error::Cancelled);
-                    }
-                    if attempt == 0 && e.status().is_none() {
-                        attempt = 1;
-                        continue;
-                    }
-                    return Err(match e.status() {
-                        Some(s) => Error::Status(s),
-                        None => Error::Transport,
-                    });
-                }
-            }
-        }
+        let host = self.api_url.host_str().unwrap_or("");
+        http::build_client(self.skip_tls_verification, host)
     }
 
     fn build_url(&self, extra: &[(&str, &str)]) -> String {
@@ -267,41 +190,6 @@ fn escape_data_string(s: &str) -> String {
         }
     }
     out
-}
-
-/// Bounded body read: a declared Content-Length above `max` rejects before the stream is
-/// read; otherwise bytes are counted and the read rejects as soon as `max` is exceeded
-/// (without waiting for EOF).
-async fn read_bounded(mut resp: Response, max: u64) -> Result<Vec<u8>, Error> {
-    let declared = resp.content_length();
-    if let Some(d) = declared
-        && d > max
-    {
-        return Err(Error::TooLarge {
-            max_bytes: max,
-            declared_bytes: Some(d),
-        });
-    }
-    let mut buf = Vec::new();
-    loop {
-        let chunk = match resp.chunk().await {
-            Ok(chunk) => chunk,
-            // A body framing/decode error (e.g. the server closing before the declared
-            // Content-Length) reads as end-of-stream, like v1's bounded read: fewer bytes
-            // than declared is not an error. Garbage still fails later at XML parse.
-            Err(e) if e.is_body() || e.is_decode() => break,
-            Err(_) => return Err(Error::Transport),
-        };
-        let Some(chunk) = chunk else { break };
-        if buf.len() as u128 + chunk.len() as u128 > u128::from(max) {
-            return Err(Error::TooLarge {
-                max_bytes: max,
-                declared_bytes: declared,
-            });
-        }
-        buf.extend_from_slice(&chunk);
-    }
-    Ok(buf)
 }
 
 fn parse_item(item: &Element) -> SearchResult {

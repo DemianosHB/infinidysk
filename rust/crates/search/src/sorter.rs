@@ -7,15 +7,20 @@
 use std::cmp::Reverse;
 
 use jiff::Timestamp;
+use serde::{Deserialize, Serialize};
 
 use crate::audio;
 use crate::quality::{self, ReleaseQualityRanks};
 
-/// Ported from `ProfileConfig.QualitySortMode`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Ported from `ProfileConfig.QualitySortMode` (JSON string enum in v1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum QualitySortMode {
+    #[default]
+    #[serde(rename = "Off")]
     Off,
+    #[serde(rename = "Resolution")]
     Resolution,
+    #[serde(rename = "ResolutionAndSource")]
     ResolutionAndSource,
 }
 

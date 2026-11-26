@@ -9,6 +9,7 @@
 
 pub mod audio;
 pub mod language;
+pub mod profile;
 pub mod quality;
 pub mod result;
 pub mod sorter;
