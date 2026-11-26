@@ -1,0 +1,47 @@
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+]
+all-features = true
+
+[advisories]
+yanked = "deny"
+ignore = [
+    # rsa, through openidconnect: the Marvin timing attack needs private-key operations.
+    # We only verify ID-token signatures with the provider's public keys. openidconnect 4.1 requires rsa 0.9; the fix is in 0.10.
+    { id = "RUSTSEC-2023-0071", reason = "only public-key signature verification of OIDC ID tokens" },
+    # chrono, through oauth2 and openidconnect: unmaintained, not a vulnerability. We use jiff directly.
+    # Remove once openidconnect drops chrono.
+    { id = "RUSTSEC-2026-0543", reason = "unmaintained notice only; pulled in by openidconnect, which has no chrono-free release" },
+]
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+required-git-spec = "rev"

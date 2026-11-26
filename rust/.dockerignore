@@ -1,0 +1,6 @@
+.git
+infinidysk-fuse/
+target
+scrap
+ui/node_modules
+ui/dist

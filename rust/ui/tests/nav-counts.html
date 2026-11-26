@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Nav counter regression</title>
+<div id="root"></div>
+<pre id="result">Running</pre>
+<script type="module">
+  import { act, createElement } from "react";
+  import { createRoot } from "react-dom/client";
+  import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+  import { MemoryRouter } from "react-router";
+  import "/src/index.css";
+
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  const root = createRoot(document.getElementById("root"));
+  const check = (condition, message) => {
+    if (!condition) throw new Error(message);
+  };
+  const issue = (title) => ({ title, messages: ["Needs a manual import"] });
+  const queueLink = () => document.querySelector('a[href="/queue"]');
+
+  try {
+    const { Nav } = await import("/src/layout.tsx");
+    client.setQueryData(["queue"], [{ id: "a" }, { id: "b" }, { id: "c" }]);
+    client.setQueryData(["health", "summary"], []);
+    client.setQueryData(["arr-status"], {
+      instances: [
+        { name: "first", queue_issues: [issue("one")] },
+        { name: "second", queue_issues: [issue("two"), issue("three")] },
+      ],
+      categories: [],
+    });
+    await act(async () => root.render(createElement(QueryClientProvider, { client },
+      createElement(MemoryRouter, null, createElement(Nav)),
+    )));
+    const text = queueLink().textContent;
+    check(text.includes("3 in queue"), `Missing queue count: ${text}`);
+    check(text.includes("3 downloads need you in the Arr"), `Issues from every Arr must add up: ${text}`);
+    check(queueLink().querySelectorAll(".bg-warning\\/15").length === 1, "Expected one warning counter");
+
+    await act(async () => {
+      client.setQueryData(["queue"], []);
+      client.setQueryData(["arr-status"], { instances: [{ name: "first", queue_issues: [issue("one")] }], categories: [] });
+    });
+    check(queueLink().textContent.includes("1 download needs you in the Arr"), "One issue must read in the singular");
+    check(!queueLink().textContent.includes("in queue"), "An empty queue must not show a queue count");
+
+    await act(async () => client.setQueryData(["arr-status"], { instances: [], categories: [] }));
+    check(queueLink().querySelectorAll("span.rounded-full").length === 0, "No issues must leave no counters");
+
+    const { MaintenanceNow } = await import("/src/maintenance.tsx");
+    document.getElementById("root").style.width = "208px";
+    await document.fonts.ready;
+    for (const [job, step, done, total, amount] of [
+      ["remove-unlinked", "Removing files", 1, 2, "50%"],
+      ["backup-database", "Restoring: copying the backup", 0, null, ""],
+      ["remove-unlinked", "Removing empty folders", 285424, null, (285424).toLocaleString()],
+    ]) {
+      await act(async () => root.render(createElement(MemoryRouter, null,
+        createElement(MaintenanceNow, { live: { job, step, done, total, dry_run: false, trigger: "manual", started_ms: 1 } }),
+      )));
+      const link = document.querySelector("#root a");
+      check(link.getAttribute("href") === `/settings/${job === "backup-database" ? "backups" : "maintenance"}`, "Wrong maintenance link");
+      const counter = link.querySelector(".tabular-nums");
+      check((counter?.textContent ?? "") === amount, `Wrong progress: ${link.textContent}`);
+      const label = [...link.querySelectorAll("span")].find((span) => !span.children.length && span.textContent.includes(step));
+      check(label && getComputedStyle(label).display === "block", "The maintenance step must have its own line");
+      check(getComputedStyle(label).whiteSpace !== "nowrap", "The maintenance step must wrap");
+      const bounds = link.getBoundingClientRect();
+      for (const span of link.querySelectorAll("span")) {
+        if (span.children.length) continue;
+        const range = document.createRange();
+        range.selectNodeContents(span);
+        for (const rect of range.getClientRects()) {
+          check(rect.left >= bounds.left && rect.right <= bounds.right + 1, `Clipped maintenance text: ${span.textContent}`);
+        }
+      }
+      check(link.scrollWidth <= link.clientWidth, "Maintenance progress overflows the sidebar");
+    }
+    document.getElementById("result").textContent = "PASS";
+  } catch (error) {
+    document.getElementById("result").textContent = `FAIL: ${error.message}`;
+  } finally {
+    if (!new URLSearchParams(location.search).has("preview")) await act(async () => root.unmount());
+    client.clear();
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  }
+</script>
+</html>
