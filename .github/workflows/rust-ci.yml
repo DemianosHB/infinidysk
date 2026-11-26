@@ -3,18 +3,17 @@ name: Rust CI
 # The Rust port of this fork lives on the `rust` branch under rust/ (see rust/PORTING.md);
 # the v1 (.NET) line keeps its own v1-* workflows. The workflow is path-filtered on
 # purpose and is NOT a required check: .NET-only PRs must not be blocked when it skips.
-# Jobs also skip while rust/ does not exist yet (CI-only PRs before the workspace lands).
+# It only triggers on rust/** changes, so CI-only PRs on a branch without the
+# workspace never start it; run it manually via workflow_dispatch.
 on:
   pull_request:
     branches: [rust]
     paths:
       - "rust/**"
-      - ".github/workflows/rust-ci.yml"
   push:
     branches: [rust]
     paths:
       - "rust/**"
-      - ".github/workflows/rust-ci.yml"
   workflow_dispatch:
 
 permissions:
@@ -30,7 +29,6 @@ env:
 jobs:
   fmt:
     runs-on: ubuntu-latest
-    if: hashFiles('rust/Cargo.toml') != ''
     steps:
       - uses: actions/checkout@v7
       - name: Install the pinned toolchain (rust/rust-toolchain.toml)
@@ -42,7 +40,6 @@ jobs:
 
   clippy:
     runs-on: ubuntu-latest
-    if: hashFiles('rust/Cargo.toml') != ''
     steps:
       - uses: actions/checkout@v7
       - name: Install the pinned toolchain (rust/rust-toolchain.toml)
@@ -57,7 +54,6 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    if: hashFiles('rust/Cargo.toml') != ''
     steps:
       - uses: actions/checkout@v7
       - name: Install the pinned toolchain (rust/rust-toolchain.toml)
@@ -72,7 +68,6 @@ jobs:
 
   test-postgres:
     runs-on: ubuntu-latest
-    if: hashFiles('rust/Cargo.toml') != ''
     services:
       postgres:
         image: postgres:17
@@ -97,7 +92,6 @@ jobs:
 
   deny:
     runs-on: ubuntu-latest
-    if: hashFiles('rust/Cargo.toml') != ''
     steps:
       - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
@@ -107,7 +101,6 @@ jobs:
   build:
     # The binary embeds the built UI (rust-embed), so build rust/ui first, like rust/Dockerfile.
     runs-on: ubuntu-latest
-    if: hashFiles('rust/Cargo.toml') != ''
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
