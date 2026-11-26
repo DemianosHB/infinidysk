@@ -7,7 +7,9 @@ use std::fmt;
 use std::ops::RangeInclusive;
 
 use infinidysk_db::Db;
+use infinidysk_indexer::models::IndexerConfig;
 use infinidysk_nntp::catalog;
+use infinidysk_search::profile::ProfileConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use utoipa::ToSchema;
@@ -149,6 +151,74 @@ impl fmt::Debug for Secret {
     }
 }
 
+/// v1-fork search settings: `search.exclude-patterns` and the `api.*-user-agent` values,
+/// plus the master switch for the external-ID resolvers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(default)]
+pub struct Search {
+    /// One exclude regex per line (bare .NET body or `/body/flags`); matching titles drop.
+    pub exclude_patterns: String,
+    /// User-Agent for NZB retrieval (v1 `api.user-agent`); default `SABnzbd/5.1.0`.
+    pub user_agent: String,
+    /// User-Agent for indexer search requests (v1 `api.search-user-agent`).
+    pub search_user_agent: String,
+    /// Master switch for the external-ID resolvers (TVmaze/Wikidata/Kitsu/anime-lists).
+    pub resolvers_enabled: bool,
+}
+
+impl Default for Search {
+    fn default() -> Self {
+        Self {
+            exclude_patterns: String::new(),
+            user_agent: "SABnzbd/5.1.0".to_owned(),
+            search_user_agent: format!("nzbdav/{}", env!("CARGO_PKG_VERSION")),
+            resolvers_enabled: true,
+        }
+    }
+}
+
+/// v1 `prowlarr.*`: pull-sync connection, interval and persisted last-sync status.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(default)]
+pub struct Prowlarr {
+    pub url: String,
+    pub api_key: Secret,
+    pub sync_enabled: bool,
+    /// Minutes between automatic syncs; clamped to [`PROWLARR_SYNC_INTERVAL_MINUTES`].
+    pub sync_interval_minutes: u32,
+    pub sync_status: Option<ProwlarrSyncStatus>,
+}
+
+/// v1 `prowlarr.sync-interval-minutes` clamp (5..=10080, default 60).
+pub const PROWLARR_SYNC_INTERVAL_MINUTES: RangeInclusive<u32> = 5..=10080;
+pub const DEFAULT_PROWLARR_SYNC_INTERVAL_MINUTES: u32 = 60;
+
+impl Default for Prowlarr {
+    fn default() -> Self {
+        Self {
+            url: String::new(),
+            api_key: Secret::default(),
+            sync_enabled: false,
+            sync_interval_minutes: DEFAULT_PROWLARR_SYNC_INTERVAL_MINUTES,
+            sync_status: None,
+        }
+    }
+}
+
+/// v1 `prowlarr.sync-status` (persisted last sync outcome).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProwlarrSyncStatus {
+    pub last_attempt_at: i64,
+    pub last_success_at: Option<i64>,
+    pub last_error: Option<String>,
+    pub remote_indexer_count: i32,
+    pub added: i32,
+    pub updated: i32,
+    pub removed: i32,
+    pub skipped: i32,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(default)]
 pub struct Settings {
@@ -169,6 +239,14 @@ pub struct Settings {
     pub proxy: Proxy,
     pub repair: Repair,
     pub maintenance: Maintenance,
+    /// v1-fork search settings: exclude patterns and user agents (`search.*`, `api.*-user-agent`).
+    pub search: Search,
+    /// v1 `indexers.instances` — the Newznab/Prowlarr indexer list.
+    pub indexers: IndexerConfig,
+    /// v1 `profiles.instances` — token-addressable search profiles.
+    pub profiles: ProfileConfig,
+    /// v1 `prowlarr.*` — Prowlarr pull-sync connection and status.
+    pub prowlarr: Prowlarr,
     /// Experiments switched on, by name; they apply after a restart.
     #[serde(deserialize_with = "known_experiments")]
     pub experiments: Vec<String>,
@@ -1340,6 +1418,14 @@ impl Settings {
             &BACKUP_KEEP,
             d.maintenance.backup.keep,
         );
+        if !PROWLARR_SYNC_INTERVAL_MINUTES.contains(&self.prowlarr.sync_interval_minutes) {
+            reset_warning(
+                "prowlarr.sync_interval_minutes",
+                &self.prowlarr.sync_interval_minutes,
+                &DEFAULT_PROWLARR_SYNC_INTERVAL_MINUTES,
+            );
+            self.prowlarr.sync_interval_minutes = DEFAULT_PROWLARR_SYNC_INTERVAL_MINUTES;
+        }
         self.performance.reset_invalid();
         if let Some(limit) = self.network.download_limit_mb_per_s
             && !DOWNLOAD_LIMIT_MB_PER_S.contains(&limit)

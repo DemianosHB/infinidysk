@@ -37,7 +37,7 @@ const MAX_SEARCH_PAGES: usize = 50;
 
 /// Snapshot of the config the search service reads, replaced atomically on config change
 /// (v1 reads `ConfigManager` per request).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchSettings {
     pub profiles: ProfileConfig,
     pub indexers: IndexerConfig,
@@ -130,6 +130,13 @@ impl SearchService {
         self
     }
 
+    /// Replaces the config snapshot (and recompiles the exclude patterns) when it changed.
+    pub async fn apply_settings(&self, settings: SearchSettings) {
+        if *self.settings.read().await != settings {
+            self.update_settings(settings).await;
+        }
+    }
+
     /// Replaces the config snapshot and recompiles the exclude patterns.
     pub async fn update_settings(&self, settings: SearchSettings) {
         let exclude = exclude::compile_lines(&settings.exclude_patterns_raw);
@@ -140,6 +147,11 @@ impl SearchService {
     #[must_use]
     pub fn hit_tracker(&self) -> &HitTracker {
         &self.hit_tracker
+    }
+
+    #[must_use]
+    pub fn rate_limiter(&self) -> &RateLimiter {
+        &self.rate_limiter
     }
 
     #[must_use]
@@ -796,7 +808,7 @@ impl SearchService {
             timeout,
             x.skip_tls_verification,
         ) {
-            Ok(c) => c,
+            Ok(c) => c.with_proxy(proxy.clone()),
             Err(e) => {
                 tracing::warn!("Indexer {} search failed: {e}", x.name);
                 return Vec::new();

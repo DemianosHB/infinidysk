@@ -27,6 +27,7 @@ pub struct NewznabClient {
     timeout: Duration,
     max_response_bytes: u64,
     skip_tls_verification: bool,
+    proxy: Option<String>,
 }
 
 impl NewznabClient {
@@ -63,7 +64,16 @@ impl NewznabClient {
             },
             max_response_bytes,
             skip_tls_verification,
+            proxy: None,
         })
+    }
+
+    /// Sets an explicit HTTP(S) proxy for this indexer's requests (v1 per-indexer /
+    /// global `proxyUrl`); `None` keeps the process-wide proxy policy.
+    #[must_use]
+    pub fn with_proxy(mut self, proxy: Option<String>) -> Self {
+        self.proxy = proxy;
+        self
     }
 
     /// `t=caps`: true when the indexer answers 2xx with a `<caps>` document.
@@ -137,7 +147,7 @@ impl NewznabClient {
     /// environment proxies, like the v1 strict direct handler).
     fn http_client(&self) -> Result<Client, Error> {
         let host = self.api_url.host_str().unwrap_or("");
-        http::build_client(self.skip_tls_verification, host)
+        http::build_client_with_proxy(self.skip_tls_verification, host, self.proxy.as_deref())
     }
 
     fn build_url(&self, extra: &[(&str, &str)]) -> String {

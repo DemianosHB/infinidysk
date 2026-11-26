@@ -174,7 +174,7 @@ impl Auth {
 
     /// A valid session cookie, or `X-Api-Key` / `Authorization: Bearer` equal to
     /// `auth.api_key` (scrapers can only send the latter).
-    async fn allowed(&self, headers: &HeaderMap) -> bool {
+    pub(crate) async fn allowed(&self, headers: &HeaderMap) -> bool {
         let bearer = headers
             .get(header::AUTHORIZATION)
             .and_then(|v| v.as_bytes().strip_prefix(b"Bearer "));

@@ -628,6 +628,7 @@ pub async fn serve(
     );
     let sab =
         Sab::new(Arc::clone(&queue), Arc::clone(&config)).context("building the NZB fetcher")?;
+    let search = crate::search::build(Arc::clone(&config), Arc::clone(&auth)).await;
     let discovery = Arc::new(
         Discovery::new(
             Arc::clone(&config),
@@ -771,6 +772,7 @@ pub async fn serve(
     let hooks = crate::arr::router(Arc::clone(&admin.arr));
     let adoption = Arc::new(crate::upgrade::WebDavAdoption::load(Arc::clone(&admin)).await);
     let app = sab::router(Arc::new(sab))
+        .merge(crate::search::router(Arc::clone(&search)))
         .merge(hooks)
         .merge(crate::healthcheck::router(healthcheck))
         .merge(admin::router(admin, Arc::clone(&auth)))

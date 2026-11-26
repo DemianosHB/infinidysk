@@ -4,11 +4,12 @@
 //! languages) and fallback behavior.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::sorter::QualitySortMode;
 
 /// Ported from `ProfileConfig.FallbackMode`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ToSchema)]
 pub enum FallbackMode {
     #[default]
     #[serde(rename = "Off")]
@@ -24,7 +25,7 @@ fn default_fallback_min_results() -> u32 {
 }
 
 /// One search profile. Ported from `ProfileConfig.Profile`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Profile {
     pub token: String,
@@ -81,7 +82,7 @@ impl Profile {
 }
 
 /// Ported from `ProfileConfig`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProfileConfig {
     pub profiles: Vec<Profile>,

@@ -13,6 +13,7 @@ fancy-regex.workspace = true
 jiff.workspace = true
 serde.workspace = true
 unicode-normalization.workspace = true
+utoipa.workspace = true
 
 [lints]
 workspace = true

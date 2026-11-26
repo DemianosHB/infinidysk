@@ -99,7 +99,12 @@ async fn main() -> anyhow::Result<()> {
         signal_seen.store(true, Ordering::Relaxed);
         stop.cancel();
     });
-    let exit = match app::serve(listener, &boot, std::env::vars(), cancel).await {
+    let serve_fut = app::serve(listener, &boot, std::env::vars(), cancel);
+    #[expect(
+        clippy::large_futures,
+        reason = "serve is one large wiring future; Box::pin would require a 'static boot"
+    )]
+    let exit = match serve_fut.await {
         Ok(exit) => exit,
         // Invalid saved settings are a known failure: one line, no backtrace.
         Err(error)

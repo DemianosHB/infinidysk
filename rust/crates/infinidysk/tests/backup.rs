@@ -138,10 +138,15 @@ async fn launch(root: &Path, mount: Option<&Path>) -> (SocketAddr, Server, Cance
         ));
     }
     let cancel = CancellationToken::new();
-    let server = tokio::spawn({
+    #[expect(
+        clippy::large_futures,
+        reason = "serve is one large wiring future; Box::pin would require a 'static boot"
+    )]
+    let server_fut = {
         let cancel = cancel.clone();
         async move { serve(listener, &boot, vars, cancel).await }
-    });
+    };
+    let server = tokio::spawn(server_fut);
     (addr, server, cancel)
 }
 

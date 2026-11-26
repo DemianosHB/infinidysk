@@ -8,7 +8,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use reqwest::header::USER_AGENT;
-use reqwest::{Client, Response};
+use reqwest::{Client, Response, Url};
 use tokio_util::sync::CancellationToken;
 
 use crate::Error;
@@ -38,6 +38,31 @@ pub fn build_client(skip_tls_verification: bool, host: &str) -> Result<Client, E
         builder = builder.no_proxy();
     }
     builder.build().map_err(|_| Error::HttpClient)
+}
+
+/// Like [`build_client`], but routes through the explicit HTTP(S) proxy URL when given
+/// (v1 `ProxyHttpClientPool` per-indexer/global `proxyUrl`); otherwise the process-wide
+/// proxy policy applies.
+pub fn build_client_with_proxy(
+    skip_tls_verification: bool,
+    host: &str,
+    proxy: Option<&str>,
+) -> Result<Client, Error> {
+    if let Some(raw) = proxy.filter(|p| !p.trim().is_empty()) {
+        let url = Url::parse(raw).map_err(|_| Error::InvalidBaseUrl)?;
+        if url.scheme() != "http" && url.scheme() != "https" {
+            return Err(Error::InvalidBaseUrl);
+        }
+        let mut builder = Client::builder().connect_timeout(CONNECT_TIMEOUT);
+        if skip_tls_verification {
+            // codeql[rs/disabled-certificate-check]
+            builder = builder.danger_accept_invalid_certs(true);
+        }
+        let proxy = reqwest::Proxy::all(url).map_err(|_| Error::InvalidBaseUrl)?;
+        builder = builder.proxy(proxy);
+        return builder.build().map_err(|_| Error::HttpClient);
+    }
+    build_client(skip_tls_verification, host)
 }
 
 /// GET with the given User-Agent. `max_attempts` = 2 retries exactly once on the first

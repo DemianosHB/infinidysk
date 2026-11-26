@@ -26,6 +26,7 @@ mod rclone_rc;
 mod release_notes;
 pub mod repair;
 pub mod sab;
+pub mod search;
 mod ui;
 pub mod update;
 pub mod upgrade;
