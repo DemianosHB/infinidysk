@@ -51,7 +51,7 @@ jobs:
                 frontend/*)
                   contracts=true
                   ;;
-                .cursor/*|.github/ISSUE_TEMPLATE/*|docs/*|rust/*)
+                .cursor/*|.github/ISSUE_TEMPLATE/*|.github/workflows/rust-*|docs/*|rust/*)
                   ;;
                 .release-please-config.json|.release-please-manifest.json|AGENTS.md|CHANGELOG.md)
                   ;;
