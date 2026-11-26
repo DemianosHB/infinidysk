@@ -1405,6 +1405,7 @@ dependencies = [
  "infinidysk-mount",
  "infinidysk-nntp",
  "infinidysk-par2",
+ "infinidysk-proxy",
  "infinidysk-queue",
  "infinidysk-stream",
  "infinidysk-testkit",
@@ -1613,6 +1614,7 @@ version = "0.0.0"
 dependencies = [
  "bytes",
  "infinidysk-core",
+ "infinidysk-proxy",
  "infinidysk-testkit",
  "infinidysk-yenc",
  "nix 0.32.0",
@@ -1635,6 +1637,16 @@ dependencies = [
  "infinidysk-yenc",
  "md-5",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "infinidysk-proxy"
+version = "0.0.0"
+dependencies = [
+ "ipnet",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

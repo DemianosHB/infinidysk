@@ -724,3 +724,135 @@ fn validation_rejects_unknown_catalog_entries_and_bad_arr_urls() {
     public.network.public_url = "media.example.com".into();
     assert!(matches!(public.validate(), Err(Error::Invalid { .. })));
 }
+
+#[tokio::test]
+async fn socks5_proxy_settings_validate_and_publish_process_wide() {
+    let path =
+        std::env::temp_dir().join(format!("infinidysk-config-{}.sqlite", uuid::Uuid::now_v7()));
+    let db = Db::connect(&format!("sqlite:{}", path.display()))
+        .await
+        .expect("connect");
+    let env = [
+        (
+            "INFINIDYSK__PROXY__SOCKS5".to_owned(),
+            " socks5h://gluetun:1080 ".to_owned(),
+        ),
+        (
+            "INFINIDYSK__PROXY__SOCKS5_BYPASS".to_owned(),
+            "sonarr.lan, 192.168.0.0/16".to_owned(),
+        ),
+    ];
+    let mut store = ConfigStore::load(db.clone(), env).await.expect("load");
+    assert_eq!(store.settings().proxy.socks5, " socks5h://gluetun:1080 ");
+    // Loading publishes the process-wide proxy state that connections read per connect.
+    let proxy = infinidysk_proxy::global();
+    assert!(proxy.is_configured());
+    assert_eq!(
+        proxy
+            .proxy_for("news.example.com")
+            .map(infinidysk_proxy::Socks5Url::port),
+        Some(1080)
+    );
+    assert!(
+        proxy.proxy_for("sonarr.lan").is_none(),
+        "bypass entry stays direct"
+    );
+    assert!(
+        proxy.proxy_for("192.168.1.20").is_none(),
+        "CIDR entry stays direct"
+    );
+    assert!(
+        proxy.proxy_for("gluetun").is_none(),
+        "single-label name stays direct"
+    );
+    // Env-locked fields cannot be changed through save.
+    let mut settings = store.settings().clone();
+    settings.proxy.socks5 = "socks5://other:1080".into();
+    assert!(matches!(store.save(settings).await, Err(Error::Locked(_))));
+    // Saving otherwise works and keeps the proxy published.
+    let mut settings = store.settings().clone();
+    settings.health.check_percent = 10;
+    store.save(settings).await.expect("save");
+    assert!(infinidysk_proxy::global().is_configured());
+    infinidysk_proxy::set_global(infinidysk_proxy::OutboundProxy::default());
+}
+
+#[test]
+fn socks5_proxy_settings_validate_without_a_store() {
+    let mut settings = Settings::default();
+    assert!(settings.validate().is_ok());
+    assert!(!infinidysk_proxy::OutboundProxy::new(None, None).is_configured());
+    settings.proxy.socks5 = "socks5://gluetun:1080".into();
+    settings.proxy.socks5_bypass = "api.internal, .lan, 192.168.0.0/16, 10.1.2.3, *".into();
+    assert!(settings.validate().is_ok());
+    for bad in [
+        "socks5://gluetun",
+        "socks5://gluetun:0",
+        "socks5://user:pass@gluetun:1080",
+        "http://gluetun:1080",
+    ] {
+        settings.proxy.socks5 = bad.into();
+        assert!(
+            matches!(settings.validate(), Err(Error::Invalid { .. })),
+            "{bad}"
+        );
+    }
+    settings.proxy.socks5 = "socks5://gluetun:1080".into();
+    settings.proxy.socks5_bypass = "sonarr:8989".into();
+    assert!(matches!(settings.validate(), Err(Error::Invalid { .. })));
+}
+
+#[test]
+fn read_ahead_repair_settings_have_v1_defaults_and_range() {
+    // v1: repair.readahead.enabled (default off), repair.readahead.window-seconds
+    // (default 45, range 5..600).
+    let mut settings = Settings::default();
+    assert!(!settings.repair.readahead_enabled);
+    assert_eq!(settings.repair.readahead_window_seconds, 45);
+    assert!(settings.validate().is_ok());
+
+    settings.repair.readahead_enabled = true;
+    settings.repair.readahead_window_seconds = 5;
+    assert!(settings.validate().is_ok());
+    settings.repair.readahead_window_seconds = 600;
+    assert!(settings.validate().is_ok());
+    settings.repair.readahead_window_seconds = 4;
+    assert!(matches!(settings.validate(), Err(Error::Invalid { .. })));
+    settings.repair.readahead_window_seconds = 601;
+    assert!(matches!(settings.validate(), Err(Error::Invalid { .. })));
+}
+
+#[tokio::test]
+async fn read_ahead_repair_env_overlay_applies_and_out_of_range_resets() {
+    let path =
+        std::env::temp_dir().join(format!("infinidysk-config-{}.sqlite", uuid::Uuid::now_v7()));
+    let db = Db::connect(&format!("sqlite:{}", path.display()))
+        .await
+        .expect("connect");
+    let env = [
+        (
+            "INFINIDYSK__REPAIR__READAHEAD_ENABLED".to_owned(),
+            "true".to_owned(),
+        ),
+        (
+            "INFINIDYSK__REPAIR__READAHEAD_WINDOW_SECONDS".to_owned(),
+            "120".to_owned(),
+        ),
+    ];
+    let store = ConfigStore::load(db.clone(), env).await.expect("load");
+    assert!(store.settings().repair.readahead_enabled);
+    assert_eq!(store.settings().repair.readahead_window_seconds, 120);
+    assert!(
+        store
+            .locked()
+            .any(|path| path == "repair.readahead_enabled")
+    );
+
+    // An out-of-range env value loads as the default, like other numeric settings.
+    let env = [(
+        "INFINIDYSK__REPAIR__READAHEAD_WINDOW_SECONDS".to_owned(),
+        "9999".to_owned(),
+    )];
+    let store = ConfigStore::load(db, env).await.expect("load");
+    assert_eq!(store.settings().repair.readahead_window_seconds, 45);
+}

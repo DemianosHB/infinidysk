@@ -72,6 +72,8 @@ pub enum Error {
     DamagedRepair(usize),
     #[error("tls setup failed")]
     Tls(#[from] rustls::Error),
+    #[error("{0}")]
+    Proxy(#[from] infinidysk_proxy::Socks5Error),
     #[error("article body exceeds {} bytes", article::MAX_DECODED_LEN)]
     TooLarge,
     #[error("invalid yEnc article: {0}")]

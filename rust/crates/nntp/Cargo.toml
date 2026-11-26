@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 bytes.workspace = true
 infinidysk-core.workspace = true
+infinidysk-proxy.workspace = true
 infinidysk-yenc.workspace = true
 nix = { workspace = true, features = ["dir", "fs"] }
 sha2.workspace = true

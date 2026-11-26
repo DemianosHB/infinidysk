@@ -180,7 +180,7 @@ pub(crate) const fn outcome(error: &Error) -> Outcome {
         Error::NotFound => return Outcome::NotFound,
         Error::Timeout => Reason::Timeout,
         Error::AuthRejected { .. } => Reason::Auth,
-        Error::Io(_) | Error::Closed | Error::Tls(_) => Reason::Network,
+        Error::Io(_) | Error::Closed | Error::Tls(_) | Error::Proxy(_) => Reason::Network,
         Error::Protocol | Error::Status { .. } => Reason::Protocol,
         Error::Yenc(_) | Error::CrcMismatch { .. } | Error::TooLarge => Reason::Corrupt,
         Error::Unavailable

@@ -1,0 +1,21 @@
+[package]
+name = "infinidysk-proxy"
+description = "Process-wide outbound SOCKS5 proxy routing with bypass exceptions (ported from the C# v1 fork)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+ipnet.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "net", "time"] }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

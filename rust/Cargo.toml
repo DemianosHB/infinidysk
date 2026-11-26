@@ -81,6 +81,7 @@ infinidysk-import = { path = "crates/import" }
 infinidysk-mount = { path = "crates/mount" }
 infinidysk-nntp = { path = "crates/nntp" }
 infinidysk-par2 = { path = "crates/par2" }
+infinidysk-proxy = { path = "crates/proxy" }
 infinidysk-queue = { path = "crates/queue" }
 infinidysk-stream = { path = "crates/stream" }
 infinidysk-testkit = { path = "crates/testkit" }

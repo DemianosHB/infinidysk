@@ -21,6 +21,7 @@ infinidysk-db.workspace = true
 infinidysk-health.workspace = true
 infinidysk-import.workspace = true
 infinidysk-nntp.workspace = true
+infinidysk-proxy.workspace = true
 infinidysk-queue.workspace = true
 infinidysk-stream.workspace = true
 infinidysk-vfs.workspace = true

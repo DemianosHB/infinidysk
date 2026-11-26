@@ -166,6 +166,8 @@ pub struct Settings {
     pub imports: Imports,
     pub metrics: Metrics,
     pub network: Network,
+    pub proxy: Proxy,
+    pub repair: Repair,
     pub maintenance: Maintenance,
     /// Experiments switched on, by name; they apply after a restart.
     #[serde(deserialize_with = "known_experiments")]
@@ -483,6 +485,46 @@ impl Default for Network {
             .into(),
             public_url: String::new(),
             download_limit_mb_per_s: None,
+        }
+    }
+}
+
+/// The process-wide outbound SOCKS5 proxy, ported from the v1 fork's
+/// `general.socks5-proxy` / `general.socks5-proxy-bypass` settings. All non-local outbound
+/// traffic — NNTP provider connections and HTTP — is tunneled through it; loopback
+/// addresses, single-label Docker service names and the bypass entries always connect
+/// directly. Read per connection, so saving applies to new connections.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(default)]
+pub struct Proxy {
+    /// `socks5://host:port` (`socks5h://` is accepted and normalized); empty disables the
+    /// proxy.
+    pub socks5: String,
+    /// Comma/whitespace-separated exceptions that connect directly: `*`, a host name (also
+    /// covering its subdomains), a domain suffix (`.lan` or `*.lan`), an IP address, or a
+    /// CIDR range.
+    pub socks5_bypass: String,
+}
+
+/// Read-ahead PAR2 repair, ported from the v1 fork's `repair.readahead.*` settings. When
+/// enabled (and the `par2-repair` experiment is on), an active stream widens its prefetch
+/// window to measured-bitrate × window ahead of the read head — capped by the in-flight
+/// article RAM budget — so missing or corrupt articles are discovered and repaired before
+/// playback reaches them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(default)]
+pub struct Repair {
+    /// Widen the prefetch window of active streams for ahead-of-playback repair.
+    pub readahead_enabled: bool,
+    /// Read-ahead window in seconds.
+    pub readahead_window_seconds: u32,
+}
+
+impl Default for Repair {
+    fn default() -> Self {
+        Self {
+            readahead_enabled: false,
+            readahead_window_seconds: infinidysk_stream::readahead::DEFAULT_WINDOW_SECONDS,
         }
     }
 }
@@ -1266,6 +1308,12 @@ impl Settings {
             &NZB_RETENTION_DAYS,
             d.queue.nzb_retention_days,
         );
+        reset(
+            "repair.readahead_window_seconds",
+            &mut self.repair.readahead_window_seconds,
+            &infinidysk_stream::readahead::WINDOW_SECONDS_RANGE,
+            d.repair.readahead_window_seconds,
+        );
         if self.sab.manual_category.trim().is_empty() {
             reset_warning(
                 "sab.manual_category",
@@ -1522,6 +1570,34 @@ impl Settings {
             ));
         }
         self.network.public_url = url.to_owned();
+        let socks5 = self.proxy.socks5.trim();
+        if !socks5.is_empty() && infinidysk_proxy::Socks5Url::parse(Some(socks5)).is_none() {
+            return Err(invalid(
+                "proxy.socks5",
+                "Config value for 'proxy.socks5' must be a socks5://host:port URL (socks5h:// \
+                 is accepted) without credentials, query, or fragment"
+                    .to_owned(),
+            ));
+        }
+        for entry in infinidysk_proxy::BypassMatcher::split_entries(Some(&self.proxy.socks5_bypass))
+        {
+            if !infinidysk_proxy::BypassMatcher::is_valid_entry(entry) {
+                return Err(invalid(
+                    "proxy.socks5_bypass",
+                    format!(
+                        "Config value for 'proxy.socks5_bypass' contains an invalid proxy \
+                         exception '{entry}': expected a host name, a domain suffix \
+                         (.example.com or *.example.com), an IP address, a CIDR range, or '*'"
+                    ),
+                ));
+            }
+        }
+        check(
+            "repair.readahead_window_seconds",
+            "Read-ahead window seconds",
+            self.repair.readahead_window_seconds,
+            &infinidysk_stream::readahead::WINDOW_SECONDS_RANGE,
+        )?;
         self.auth.oidc.validate()?;
         if let Some(limit) = self.network.download_limit_mb_per_s {
             check(
@@ -1744,6 +1820,7 @@ impl ConfigStore {
             stored.insert(key, serde_json::from_str(&value)?);
         }
         let settings = effective(&stored, &env, &default_cache_dir)?;
+        publish_proxy(&settings);
         // Freeze generated ids and catalog fields so env-defined lists round-trip through saves.
         let resolved = serde_json::to_value(&settings)?;
         for o in &mut env {
@@ -1914,9 +1991,19 @@ impl ConfigStore {
             }
         }
         self.settings = effective(&next, &self.env, &self.default_cache_dir)?;
+        publish_proxy(&self.settings);
         self.stored = next;
         Ok(())
     }
+}
+
+/// Publishes the outbound proxy settings to the process-wide state that connections read
+/// per connect, so a save applies to new connections.
+fn publish_proxy(settings: &Settings) {
+    infinidysk_proxy::set_global(infinidysk_proxy::OutboundProxy::new(
+        Some(settings.proxy.socks5.as_str()),
+        Some(settings.proxy.socks5_bypass.as_str()),
+    ));
 }
 
 fn effective(

@@ -150,6 +150,7 @@ impl Phase {
 pub(crate) enum Stage {
     Resolve,
     Tcp,
+    Proxy,
     Tls,
     Greeting,
     Auth,
@@ -165,6 +166,7 @@ impl Stage {
         match self {
             Self::Resolve => "resolve",
             Self::Tcp => "tcp",
+            Self::Proxy => "proxy",
             Self::Tls => "tls",
             Self::Greeting => "greeting",
             Self::Auth => "auth",
@@ -409,13 +411,43 @@ impl Connection {
     ) -> Result<Self, Error> {
         let timeout_after = endpoint.timeout;
         let started = Instant::now();
-        let addrs = resolve::PROVIDERS
-            .resolve(&endpoint.host, endpoint.port, resolve::system)
-            .await?;
-        let resolved = Instant::now();
+        // A configured outbound proxy resolves the destination remotely (socks5h), so on
+        // that path the provider host is not resolved locally; the proxy host is.
+        let proxy = infinidysk_proxy::global()
+            .proxy_for(&endpoint.host)
+            .cloned();
+        let (addrs, resolved) = match &proxy {
+            Some(proxy) => (
+                resolve::PROVIDERS
+                    .resolve(proxy.host(), proxy.port(), resolve::system)
+                    .await?,
+                Instant::now(),
+            ),
+            None => (
+                resolve::PROVIDERS
+                    .resolve(&endpoint.host, endpoint.port, resolve::system)
+                    .await?,
+                Instant::now(),
+            ),
+        };
         *stage = Stage::Tcp;
         let tcp = connect_addresses(&addrs, deadline, TcpStream::connect).await?;
         let connected = Instant::now();
+        let tcp = match proxy {
+            Some(_) => {
+                *stage = Stage::Proxy;
+                infinidysk_proxy::socks5_connect(
+                    tcp,
+                    &endpoint.host,
+                    endpoint.port,
+                    None,
+                    timeout_after,
+                )
+                .await
+                .map_err(Error::Proxy)?
+            }
+            None => tcp,
+        };
         let peer = tcp.peer_addr().ok();
         tcp.set_nodelay(true)?;
         SockRef::from(&tcp).set_tcp_keepalive(
@@ -1010,5 +1042,97 @@ mod tests {
         payment.await;
         assert_eq!(conn.stream.get_ref().unpaid, 0);
         assert_eq!(usage.used(), debt);
+    }
+
+    /// Restores the process-wide outbound proxy state when the test ends.
+    struct ProxyGuard;
+
+    impl ProxyGuard {
+        fn set(url: &str) -> Self {
+            infinidysk_proxy::set_global(infinidysk_proxy::OutboundProxy::new(Some(url), None));
+            Self
+        }
+    }
+
+    impl Drop for ProxyGuard {
+        fn drop(&mut self) {
+            infinidysk_proxy::set_global(infinidysk_proxy::OutboundProxy::default());
+        }
+    }
+
+    #[tokio::test]
+    async fn connect_via_socks5_proxy_tunnels_to_the_provider() {
+        let server = LoopbackServer::start(Vec::new()).await.unwrap();
+        let inner = server.addr();
+        // A fake SOCKS5 proxy on loopback that really tunnels to the inner server, so the
+        // NNTP greeting arrives through the SOCKS5 handshake.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_addr = listener.local_addr().unwrap();
+        let (handshake_done_tx, handshake_done_rx) = tokio::sync::oneshot::channel::<()>();
+        let tunnel = tokio::spawn(async move {
+            let (mut client, _) = listener.accept().await.unwrap();
+            let mut greeting = [0u8; 3];
+            client.read_exact(&mut greeting).await.unwrap();
+            assert_eq!(greeting, [0x05, 0x01, 0x00]);
+            client.write_all(&[0x05, 0x00]).await.unwrap();
+            let mut header = [0u8; 4];
+            client.read_exact(&mut header).await.unwrap();
+            assert_eq!(&header[..3], &[0x05, 0x01, 0x00]);
+            assert_eq!(
+                header[3], 0x03,
+                "the host name goes to the proxy as a domain"
+            );
+            let mut len = [0u8; 1];
+            client.read_exact(&mut len).await.unwrap();
+            let mut host = vec![0u8; usize::from(len[0])];
+            client.read_exact(&mut host).await.unwrap();
+            assert_eq!(host, b"nntp.example.com");
+            let mut port = [0u8; 2];
+            client.read_exact(&mut port).await.unwrap();
+            assert_eq!(u16::from_be_bytes(port), inner.port());
+            let upstream = TcpStream::connect(inner).await.unwrap();
+            client
+                .write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+                .await
+                .unwrap();
+            let _ = handshake_done_tx.send(());
+            let (mut cr, mut cw) = tokio::io::split(client);
+            let (mut ur, mut uw) = tokio::io::split(upstream);
+            let up = tokio::spawn(async move { tokio::io::copy(&mut cr, &mut uw).await });
+            let down = tokio::spawn(async move { tokio::io::copy(&mut ur, &mut cw).await });
+            let _ = tokio::join!(up, down);
+        });
+
+        let _guard = ProxyGuard::set(&format!("socks5://127.0.0.1:{}", proxy_addr.port()));
+        let endpoint = Endpoint::new(
+            "nntp.example.com",
+            inner.port(),
+            TlsMode::Plain,
+            None,
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        let conn = Connection::connect(&endpoint).await.unwrap();
+        drop(conn);
+        // The proxy saw the expected handshake; the pipes end with the connection.
+        handshake_done_rx.await.unwrap();
+        tunnel.abort();
+    }
+
+    #[tokio::test]
+    async fn connect_bypasses_proxy_for_local_destinations() {
+        // Loopback destinations always connect directly, even with a proxy configured.
+        let server = LoopbackServer::start(Vec::new()).await.unwrap();
+        let _guard = ProxyGuard::set("socks5://127.0.0.1:1"); // unreachable on purpose
+        let endpoint = Endpoint::new(
+            "127.0.0.1",
+            server.addr().port(),
+            TlsMode::Plain,
+            None,
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        let conn = Connection::connect(&endpoint).await.unwrap();
+        drop(conn);
     }
 }
