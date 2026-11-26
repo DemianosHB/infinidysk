@@ -951,6 +951,10 @@ mod tests {
     use super::*;
     use infinidysk_testkit::LoopbackServer;
 
+    /// The process-wide outbound proxy is global state; serialize the tests that set
+    /// it via `ProxyGuard` so a concurrent reset cannot clobber another test's proxy.
+    static PROXY_GLOBAL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     struct Dropped(Arc<AtomicBool>);
 
     impl Drop for Dropped {
@@ -1062,6 +1066,7 @@ mod tests {
 
     #[tokio::test]
     async fn connect_via_socks5_proxy_tunnels_to_the_provider() {
+        let _proxy_global = PROXY_GLOBAL_LOCK.lock().await;
         let server = LoopbackServer::start(Vec::new()).await.unwrap();
         let inner = server.addr();
         // A fake SOCKS5 proxy on loopback that really tunnels to the inner server, so the
@@ -1121,6 +1126,7 @@ mod tests {
 
     #[tokio::test]
     async fn connect_bypasses_proxy_for_local_destinations() {
+        let _proxy_global = PROXY_GLOBAL_LOCK.lock().await;
         // Loopback destinations always connect directly, even with a proxy configured.
         let server = LoopbackServer::start(Vec::new()).await.unwrap();
         let _guard = ProxyGuard::set("socks5://127.0.0.1:1"); // unreachable on purpose
