@@ -69,7 +69,7 @@ jobs:
         run: npm ci
 
       - name: Set up the Rust toolchain (rust/rust-toolchain.toml)
-        if: matrix.language == 'rust'
+        if: matrix.language == 'rust' && hashFiles('rust/Cargo.toml') != ''
         working-directory: rust
         run: rustup toolchain install
 
