@@ -28,6 +28,8 @@ pub struct Reply {
     pub send_body: bool,
     pub block: bool,
     pub drop: bool,
+    /// Never answer at all (v1 HangHandler): the client must hit its own timeout.
+    pub hang: bool,
 }
 
 impl Reply {
@@ -40,6 +42,7 @@ impl Reply {
             send_body: true,
             block: false,
             drop: false,
+            hang: false,
         }
     }
 }
@@ -104,6 +107,10 @@ pub async fn serve(replies: Vec<Reply>) -> (SocketAddr, Requests) {
                     .expect("requests lock")
                     .push(RecordedRequest { target, user_agent });
                 if reply.drop {
+                    return;
+                }
+                if reply.hang {
+                    tokio::time::sleep(Duration::from_secs(30)).await;
                     return;
                 }
                 let mut out = format!("HTTP/1.1 {}\r\n", reply.status);

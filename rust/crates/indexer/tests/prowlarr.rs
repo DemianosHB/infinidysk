@@ -172,8 +172,7 @@ async fn http_client_timeout_surfaces_as_timeout_not_leaking_key() {
     // Ported from HttpClientTimeout_SurfacesAsTimedOutRequest (without the v1
     // ArrHttpTransport routing suffix; the base URL carries no credentials).
     let (addr, _requests) = serve(vec![Reply {
-        block: true,
-        send_body: false,
+        hang: true,
         ..Reply::ok(Vec::new())
     }])
     .await;
@@ -204,8 +203,7 @@ async fn http_client_timeout_surfaces_as_timeout_not_leaking_key() {
 async fn caller_cancellation_is_not_reported_as_timeout() {
     // Ported from CallerCancellation_IsNotReportedAsTimeout.
     let (addr, _requests) = serve(vec![Reply {
-        block: true,
-        send_body: false,
+        hang: true,
         ..Reply::ok(Vec::new())
     }])
     .await;
