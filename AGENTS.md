@@ -42,6 +42,9 @@ infinidysk/
 │   └── Program.cs           # App entry point
 ├── libs/                    # In-tree .NET libraries (SharpCompress, UsenetSharp, RapidYencSharp)
 │   └── rapidyenc/           # git submodule → nzbdav/rapidyenc (native yEnc; build via scripts/build-rapidyenc.sh)
+├── rust/                    # Rust port of this fork on the upstream 2.x base (vendored under rust/, see rust/PORTING.md)
+│   │   ├── crates/          #   Rust workspace: nntp, stream, webdav, … + ported fork features (proxy, readahead)
+│   │   └── PORTING.md       #   port plan, feature status, v1 config-key mapping
 ├── frontend/
 │   ├── app/
 │   │   ├── routes/          # React Router pages (queue, health, settings, explore, …)
