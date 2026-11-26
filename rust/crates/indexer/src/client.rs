@@ -157,6 +157,9 @@ impl NewznabClient {
     fn http_client(&self) -> Result<Client, Error> {
         let mut builder = Client::builder().connect_timeout(CONNECT_TIMEOUT);
         if self.skip_tls_verification {
+            // Intentional opt-in escape hatch for self-signed indexers, ported from v1's
+            // per-indexer `IndexerConfig.SkipTlsVerification`; off by default.
+            // codeql[rs/disabled-certificate-check]
             builder = builder.danger_accept_invalid_certs(true);
         }
         let proxy = infinidysk_proxy::global();
