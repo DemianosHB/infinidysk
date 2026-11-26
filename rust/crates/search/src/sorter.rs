@@ -8,12 +8,13 @@ use std::cmp::Reverse;
 
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::audio;
 use crate::quality::{self, ReleaseQualityRanks};
 
 /// Ported from `ProfileConfig.QualitySortMode` (JSON string enum in v1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ToSchema)]
 pub enum QualitySortMode {
     #[default]
     #[serde(rename = "Off")]

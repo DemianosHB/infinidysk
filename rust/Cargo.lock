@@ -1422,17 +1422,21 @@ dependencies = [
  "futures-util",
  "hmac 0.13.0",
  "http-body-util",
+ "httpdate",
  "infinidysk-allocator",
  "infinidysk-arr",
  "infinidysk-core",
  "infinidysk-db",
  "infinidysk-health",
  "infinidysk-import",
+ "infinidysk-indexer",
  "infinidysk-mount",
  "infinidysk-nntp",
  "infinidysk-par2",
+ "infinidysk-profiles",
  "infinidysk-proxy",
  "infinidysk-queue",
+ "infinidysk-search",
  "infinidysk-stream",
  "infinidysk-testkit",
  "infinidysk-vfs",
@@ -1630,6 +1634,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
+ "utoipa",
 ]
 
 [[package]]
@@ -1683,6 +1688,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "infinidysk-profiles"
+version = "0.0.0"
+dependencies = [
+ "fancy-regex",
+ "futures-util",
+ "infinidysk-indexer",
+ "infinidysk-search",
+ "jiff 1.0.2",
+ "percent-encoding",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "unicode-normalization",
+ "uuid",
+]
+
+[[package]]
 name = "infinidysk-proxy"
 version = "0.0.0"
 dependencies = [
@@ -1724,6 +1752,7 @@ dependencies = [
  "jiff 1.0.2",
  "serde",
  "unicode-normalization",
+ "utoipa",
 ]
 
 [[package]]

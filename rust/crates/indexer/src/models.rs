@@ -3,6 +3,7 @@
 //! can embed it in `Settings` later.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 /// Hard default when neither the indexer nor the global override sets a timeout.
 pub const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
@@ -14,7 +15,7 @@ pub const DEFAULT_MAX_RESPONSE_BYTES: u64 = 4 * 1024 * 1024;
 pub const HARD_MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Ported from `IndexerConfig`.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct IndexerConfig {
     /// Global HTTP(S) proxy URL applied to indexers without their own. `None` = the
@@ -98,7 +99,7 @@ fn first_non_blank(a: Option<&str>, b: Option<&str>) -> Option<String> {
     clippy::struct_excessive_bools,
     reason = "mirrors the v1 ConnectionDetails field set 1:1"
 )]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ConnectionDetails {
     pub name: String,
@@ -161,7 +162,7 @@ fn default_grabs_grace_hours() -> u32 {
 
 /// Ported from `IndexerConfig.ResultFilter` — per-indexer drop/rank rules applied before
 /// merging (see [`crate::filter`]).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ResultFilter {
     pub enabled: bool,

@@ -8,7 +8,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use reqwest::header::USER_AGENT;
-use reqwest::{Client, Response};
+use reqwest::{Client, Response, Url};
 use tokio_util::sync::CancellationToken;
 
 use crate::Error;
@@ -16,7 +16,7 @@ use crate::Error;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Builds a one-shot HTTP client for requests to `host`, honoring the process-wide proxy.
-pub(crate) fn build_client(skip_tls_verification: bool, host: &str) -> Result<Client, Error> {
+pub fn build_client(skip_tls_verification: bool, host: &str) -> Result<Client, Error> {
     let mut builder = Client::builder().connect_timeout(CONNECT_TIMEOUT);
     if skip_tls_verification {
         // Intentional opt-in escape hatch for self-signed indexers, ported from v1's
@@ -40,9 +40,34 @@ pub(crate) fn build_client(skip_tls_verification: bool, host: &str) -> Result<Cl
     builder.build().map_err(|_| Error::HttpClient)
 }
 
+/// Like [`build_client`], but routes through the explicit HTTP(S) proxy URL when given
+/// (v1 `ProxyHttpClientPool` per-indexer/global `proxyUrl`); otherwise the process-wide
+/// proxy policy applies.
+pub fn build_client_with_proxy(
+    skip_tls_verification: bool,
+    host: &str,
+    proxy: Option<&str>,
+) -> Result<Client, Error> {
+    if let Some(raw) = proxy.filter(|p| !p.trim().is_empty()) {
+        let url = Url::parse(raw).map_err(|_| Error::InvalidBaseUrl)?;
+        if url.scheme() != "http" && url.scheme() != "https" {
+            return Err(Error::InvalidBaseUrl);
+        }
+        let mut builder = Client::builder().connect_timeout(CONNECT_TIMEOUT);
+        if skip_tls_verification {
+            // codeql[rs/disabled-certificate-check]
+            builder = builder.danger_accept_invalid_certs(true);
+        }
+        let proxy = reqwest::Proxy::all(url).map_err(|_| Error::InvalidBaseUrl)?;
+        builder = builder.proxy(proxy);
+        return builder.build().map_err(|_| Error::HttpClient);
+    }
+    build_client(skip_tls_verification, host)
+}
+
 /// GET with the given User-Agent. `max_attempts` = 2 retries exactly once on the first
 /// transport-level failure (v1 `NewznabClient.GetAsync`); 1 means no retry (Prowlarr).
-pub(crate) async fn get(
+pub async fn get(
     http: &Client,
     url: &str,
     user_agent: &str,
@@ -74,7 +99,7 @@ pub(crate) async fn get(
 /// Bounded body read: a declared Content-Length above `max` rejects before the stream is
 /// read; otherwise bytes are counted and the read rejects as soon as `max` is exceeded
 /// (without waiting for EOF).
-pub(crate) async fn read_bounded(mut resp: Response, max: u64) -> Result<Vec<u8>, Error> {
+pub async fn read_bounded(mut resp: Response, max: u64) -> Result<Vec<u8>, Error> {
     let declared = resp.content_length();
     if let Some(d) = declared
         && d > max
@@ -107,7 +132,7 @@ pub(crate) async fn read_bounded(mut resp: Response, max: u64) -> Result<Vec<u8>
 }
 
 /// The v1 `WithTimeoutAsync`: caller cancellation wins over the timeout budget.
-pub(crate) async fn with_timeout<T, F: Future<Output = Result<T, Error>>>(
+pub async fn with_timeout<T, F: Future<Output = Result<T, Error>>>(
     timeout: Duration,
     ct: &CancellationToken,
     work: F,

@@ -94,10 +94,15 @@ async fn start_with(
     .collect::<Vec<_>>();
     let cancel = CancellationToken::new();
     let database_url = boot.database_url.clone();
-    let server = tokio::spawn({
+    #[expect(
+        clippy::large_futures,
+        reason = "serve is one large wiring future; Box::pin would require a 'static boot"
+    )]
+    let server_fut = {
         let cancel = cancel.clone();
         async move { serve(listener, &boot, vars, cancel).await }
-    });
+    };
+    let server = tokio::spawn(server_fut);
     (addr, cancel, server, database_url)
 }
 
@@ -321,10 +326,15 @@ async fn keeps_the_boot_file_and_disk_cache_in_the_config_folder() {
         ),
     ];
     let cancel = CancellationToken::new();
-    let server = tokio::spawn({
+    #[expect(
+        clippy::large_futures,
+        reason = "serve is one large wiring future; Box::pin would require a 'static boot"
+    )]
+    let server_fut = {
         let cancel = cancel.clone();
         async move { serve(listener, &boot, vars, cancel).await }
-    });
+    };
+    let server = tokio::spawn(server_fut);
 
     let (code, body) = send(addr, &admin_request("GET", "/api/v1/database", "")).await;
     assert_eq!(code, "HTTP/1.1 200 OK");

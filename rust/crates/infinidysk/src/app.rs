@@ -628,6 +628,14 @@ pub async fn serve(
     );
     let sab =
         Sab::new(Arc::clone(&queue), Arc::clone(&config)).context("building the NZB fetcher")?;
+    let search = crate::search::build(Arc::clone(&config), Arc::clone(&auth)).await;
+    let prowlarr_sync =
+        crate::prowlarr_sync::build(Arc::clone(&config), Arc::clone(&search), Arc::clone(&auth));
+    let prowlarr_sync_task = tokio::spawn({
+        let sync = Arc::clone(&prowlarr_sync);
+        let cancel = cancel.clone();
+        async move { sync.run(cancel).await }
+    });
     let discovery = Arc::new(
         Discovery::new(
             Arc::clone(&config),
@@ -771,6 +779,8 @@ pub async fn serve(
     let hooks = crate::arr::router(Arc::clone(&admin.arr));
     let adoption = Arc::new(crate::upgrade::WebDavAdoption::load(Arc::clone(&admin)).await);
     let app = sab::router(Arc::new(sab))
+        .merge(crate::search::router(Arc::clone(&search)))
+        .merge(crate::prowlarr_sync::router(prowlarr_sync))
         .merge(hooks)
         .merge(crate::healthcheck::router(healthcheck))
         .merge(admin::router(admin, Arc::clone(&auth)))
@@ -820,6 +830,7 @@ pub async fn serve(
     update_task.abort();
     warm_task.abort();
     optimize_task.abort();
+    prowlarr_sync_task.abort();
     database.stop().await;
     let _ = metrics_task.await;
     let _ = quota_task.await;

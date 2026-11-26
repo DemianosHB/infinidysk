@@ -2123,10 +2123,15 @@ mod tests {
             ),
         ];
         let cancel = CancellationToken::new();
-        let server = tokio::spawn({
+        #[expect(
+            clippy::large_futures,
+            reason = "app::serve is one large wiring future; Box::pin would need a 'static boot"
+        )]
+        let server_fut = {
             let (boot, cancel) = (boot(&dir.0), cancel.clone());
             async move { crate::app::serve(listener, &boot, vars, cancel).await }
-        });
+        };
+        let server = tokio::spawn(server_fut);
         tokio::time::timeout(Duration::from_secs(60), async {
             while !renamed(&dir.0) {
                 tokio::time::sleep(Duration::from_millis(50)).await;
