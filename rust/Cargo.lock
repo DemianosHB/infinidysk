@@ -1683,6 +1683,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "infinidysk-profiles"
+version = "0.0.0"
+dependencies = [
+ "fancy-regex",
+ "futures-util",
+ "infinidysk-indexer",
+ "infinidysk-search",
+ "jiff 1.0.2",
+ "percent-encoding",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "unicode-normalization",
+ "uuid",
+]
+
+[[package]]
 name = "infinidysk-proxy"
 version = "0.0.0"
 dependencies = [
