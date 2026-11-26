@@ -4,8 +4,16 @@ use infinidysk::config::{
 };
 use infinidysk_db::Db;
 
+/// `ConfigStore::load`/`save` publish the process-wide outbound proxy; serialize the
+/// tests so those publishes cannot race each other (the socks5 test asserts on the
+/// global). Without this, a parallel load publishing the default proxy can clobber
+/// the configured state mid-assert — observed as a flake on macOS.
+static PROXY_PUBLISH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tokio::test]
 async fn env_overrides_win_are_never_stored_and_masked_secrets_survive_saves() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.lock().await;
+
     let path =
         std::env::temp_dir().join(format!("infinidysk-config-{}.sqlite", uuid::Uuid::now_v7()));
     let db = Db::connect(&format!("sqlite:{}", path.display()))
@@ -106,6 +114,8 @@ async fn env_overrides_win_are_never_stored_and_masked_secrets_survive_saves() {
 
 #[tokio::test]
 async fn rclone_rc_is_off_until_explicitly_enabled() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.lock().await;
+
     let path =
         std::env::temp_dir().join(format!("infinidysk-config-{}.sqlite", uuid::Uuid::now_v7()));
     let db = Db::connect(&format!("sqlite:{}", path.display()))
@@ -223,6 +233,8 @@ async fn rclone_rc_is_off_until_explicitly_enabled() {
 
 #[tokio::test]
 async fn rclone_rc_env_url_never_carries_a_password_to_another_server() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.lock().await;
+
     let path =
         std::env::temp_dir().join(format!("infinidysk-config-{}.sqlite", uuid::Uuid::now_v7()));
     let db = Db::connect(&format!("sqlite:{}", path.display()))
@@ -321,6 +333,8 @@ async fn rclone_rc_env_url_never_carries_a_password_to_another_server() {
 
 #[tokio::test]
 async fn rclone_rc_env_overrides_never_rebind_what_is_saved() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.lock().await;
+
     let path =
         std::env::temp_dir().join(format!("infinidysk-config-{}.sqlite", uuid::Uuid::now_v7()));
     let db = Db::connect(&format!("sqlite:{}", path.display()))
@@ -401,6 +415,8 @@ async fn rclone_rc_env_overrides_never_rebind_what_is_saved() {
 
 #[tokio::test]
 async fn import_sample_percent_defaults_independently_and_rejects_invalid_values() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.lock().await;
+
     let path =
         std::env::temp_dir().join(format!("infinidysk-config-{}.sqlite", uuid::Uuid::now_v7()));
     let db = Db::connect(&format!("sqlite:{}", path.display()))
@@ -435,6 +451,8 @@ async fn import_sample_percent_defaults_independently_and_rejects_invalid_values
 
 #[tokio::test]
 async fn a_readarr_instance_stops_loading_with_what_to_do() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.lock().await;
+
     let path =
         std::env::temp_dir().join(format!("infinidysk-config-{}.sqlite", uuid::Uuid::now_v7()));
     let db = Db::connect(&format!("sqlite:{}", path.display()))
@@ -468,6 +486,8 @@ async fn a_readarr_instance_stops_loading_with_what_to_do() {
 
 #[tokio::test]
 async fn out_of_range_stored_values_load_as_defaults_but_never_save() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.lock().await;
+
     let path =
         std::env::temp_dir().join(format!("infinidysk-config-{}.sqlite", uuid::Uuid::now_v7()));
     let db = Db::connect(&format!("sqlite:{}", path.display()))
@@ -521,6 +541,8 @@ async fn out_of_range_stored_values_load_as_defaults_but_never_save() {
 
 #[test]
 fn library_dirs_stored_as_plain_paths_still_load() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.blocking_lock();
+
     let dirs: Vec<LibraryDir> =
         serde_json::from_str(r#"["/old", {"path": "/new", "arr_path": "/arr"}]"#).expect("parse");
     assert_eq!(
@@ -540,6 +562,8 @@ fn library_dirs_stored_as_plain_paths_still_load() {
 
 #[test]
 fn idle_memory_trim_is_opt_in_and_survives_a_settings_round_trip() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.blocking_lock();
+
     let enabled = |settings: &Settings| {
         settings
             .experiments
@@ -556,6 +580,8 @@ fn idle_memory_trim_is_opt_in_and_survives_a_settings_round_trip() {
 
 #[test]
 fn retired_experiments_are_dropped_on_load() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.blocking_lock();
+
     let settings: Settings =
         serde_json::from_str(r#"{"experiments": ["retired", "win-floor", "win-floor"]}"#)
             .expect("parse");
@@ -564,6 +590,8 @@ fn retired_experiments_are_dropped_on_load() {
 
 #[test]
 fn sso_settings_are_checked_only_while_an_issuer_is_set() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.blocking_lock();
+
     let sso = |issuer: &str| {
         let mut s = Settings::default();
         s.auth.oidc.issuer = issuer.to_owned();
@@ -629,6 +657,8 @@ fn sso_settings_are_checked_only_while_an_issuer_is_set() {
 
 #[test]
 fn password_login_stays_on_while_sso_is_off() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.blocking_lock();
+
     let mut s = Settings::default();
     s.auth.local_login = false;
     assert!(s.auth.password_login());
@@ -641,6 +671,8 @@ fn password_login_stays_on_while_sso_is_off() {
 
 #[test]
 fn validation_rejects_unknown_catalog_entries_and_bad_arr_urls() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.blocking_lock();
+
     let custom = |backbone: Option<&str>| Settings {
         providers: vec![Provider {
             hostname: "news.example.com".into(),
@@ -727,6 +759,8 @@ fn validation_rejects_unknown_catalog_entries_and_bad_arr_urls() {
 
 #[tokio::test]
 async fn socks5_proxy_settings_validate_and_publish_process_wide() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.lock().await;
+
     let path =
         std::env::temp_dir().join(format!("infinidysk-config-{}.sqlite", uuid::Uuid::now_v7()));
     let db = Db::connect(&format!("sqlite:{}", path.display()))
@@ -779,6 +813,8 @@ async fn socks5_proxy_settings_validate_and_publish_process_wide() {
 
 #[test]
 fn socks5_proxy_settings_validate_without_a_store() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.blocking_lock();
+
     let mut settings = Settings::default();
     assert!(settings.validate().is_ok());
     assert!(!infinidysk_proxy::OutboundProxy::new(None, None).is_configured());
@@ -804,6 +840,8 @@ fn socks5_proxy_settings_validate_without_a_store() {
 
 #[test]
 fn read_ahead_repair_settings_have_v1_defaults_and_range() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.blocking_lock();
+
     // v1: repair.readahead.enabled (default off), repair.readahead.window-seconds
     // (default 45, range 5..600).
     let mut settings = Settings::default();
@@ -824,6 +862,8 @@ fn read_ahead_repair_settings_have_v1_defaults_and_range() {
 
 #[tokio::test]
 async fn read_ahead_repair_env_overlay_applies_and_out_of_range_resets() {
+    let _proxy_publish = PROXY_PUBLISH_LOCK.lock().await;
+
     let path =
         std::env::temp_dir().join(format!("infinidysk-config-{}.sqlite", uuid::Uuid::now_v7()));
     let db = Db::connect(&format!("sqlite:{}", path.display()))
