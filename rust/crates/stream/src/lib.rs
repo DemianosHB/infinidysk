@@ -3,6 +3,7 @@
 mod cache;
 mod disk;
 mod gaps;
+pub mod readahead;
 
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
@@ -408,6 +409,15 @@ pub struct SegmentReader {
     waiting: Option<(usize, Instant)>,
     /// When the last [`Event::Sample`] was recorded.
     sampled: Option<Instant>,
+    /// Read-ahead PAR2 repair window (v1 fork `repair.readahead.*`): widens the prefetch
+    /// window to the measured delivery rate × window, capped by the budget.
+    read_ahead: Option<ReadAhead>,
+}
+
+/// Read-ahead repair state: the configured window and the measured delivery rate.
+struct ReadAhead {
+    window_seconds: u32,
+    rate: readahead::DeliveryRate,
 }
 
 impl SegmentReader {
@@ -450,6 +460,28 @@ impl SegmentReader {
             gaps: None,
             waiting: None,
             sampled: None,
+            read_ahead: None,
+        }
+    }
+
+    /// Read-ahead PAR2 repair: with `window_seconds`, an active stream widens its prefetch
+    /// window to the measured delivery rate × window ahead of the read head, capped by the
+    /// in-flight article budget, so holes ahead of the reader are fetched — and reported
+    /// for repair — before playback reaches them. `None` keeps the stock window.
+    #[must_use]
+    pub fn with_read_ahead(mut self, window_seconds: Option<u32>) -> Self {
+        self.read_ahead = window_seconds.map(|window_seconds| ReadAhead {
+            window_seconds,
+            rate: readahead::DeliveryRate::default(),
+        });
+        self
+    }
+
+    /// Overrides the measured delivery rate (v1 `SetDeliveryRateForTests`). Tests only.
+    #[cfg(test)]
+    fn set_delivery_rate_for_tests(&mut self, rate: f64) {
+        if let Some(read_ahead) = &mut self.read_ahead {
+            read_ahead.rate.set_rate(rate);
         }
     }
 
@@ -648,23 +680,43 @@ impl SegmentReader {
     /// Segments to keep in flight ahead of the reader. Large articles grow the window by
     /// the opening size per segment read, so an open does not queue the whole prefetch.
     fn ahead(&self) -> usize {
-        if self.bounded {
-            return self.prefetch;
-        }
-        let step = self.layout.segments.first().map_or(1, |s| s.size.max(1));
-        if step >= RAMP_SEGMENT_BYTES {
-            let base = usize::try_from((INITIAL_AHEAD_BYTES / step).max(4))
-                .unwrap_or(usize::MAX)
-                .min(self.initial);
-            return base
-                .saturating_add(self.consumed.saturating_mul(base))
-                .min(self.prefetch);
-        }
-        if self.consumed > 0 {
+        let base = if self.bounded {
             self.prefetch
         } else {
-            self.initial
+            let step = self.layout.segments.first().map_or(1, |s| s.size.max(1));
+            if step >= RAMP_SEGMENT_BYTES {
+                let ramp = usize::try_from((INITIAL_AHEAD_BYTES / step).max(4))
+                    .unwrap_or(usize::MAX)
+                    .min(self.initial);
+                ramp.saturating_add(self.consumed.saturating_mul(ramp))
+                    .min(self.prefetch)
+            } else if self.consumed > 0 {
+                self.prefetch
+            } else {
+                self.initial
+            }
+        };
+        self.read_ahead_window(base)
+    }
+
+    /// Read-ahead repair widening (v1 fork): the window also grows to the measured delivery
+    /// rate × window seconds, capped by the in-flight article budget.
+    fn read_ahead_window(&self, base: usize) -> usize {
+        let Some(read_ahead) = &self.read_ahead else {
+            return base;
+        };
+        let cap = self
+            .budget
+            .as_ref()
+            .map_or(u64::MAX, |b| u64::from(b.bytes));
+        let window =
+            readahead::window_bytes(read_ahead.rate.rate(), read_ahead.window_seconds, cap);
+        if window == 0 {
+            return base;
         }
+        let segment = self.layout.segments.first().map_or(1, |s| s.size.max(1));
+        let wanted = usize::try_from(window.div_ceil(segment)).unwrap_or(usize::MAX);
+        base.max(wanted)
     }
 
     fn schedule(&mut self, read_index: usize) {
@@ -1060,6 +1112,9 @@ impl SegmentReader {
                 };
                 self.head += 1;
                 self.consumed = self.consumed.saturating_add(1);
+                if let Some(read_ahead) = &mut self.read_ahead {
+                    read_ahead.rate.sample(self.pos, std::time::Instant::now());
+                }
                 // A failed segment is fetched again by the next read at this position.
                 let data = result?;
                 if let Some(gaps) = self.gaps.as_ref().filter(|_| !self.strict) {
@@ -1360,6 +1415,41 @@ fn sized(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_ahead_repair_widens_window_by_measured_rate_capped_by_budget() {
+        // Ported from ReadAheadRepairCeilingTests.Ceiling_ExtendsWithDeliveryRate_WhenReadAheadRepairEnabled.
+        let client = Arc::new(Client::new([]));
+        let segments: Vec<Segment> = (0..8)
+            .map(|i| Segment {
+                message_id: format!("seg-{i}@test"),
+                size: 100_000,
+                begin: None,
+            })
+            .collect();
+        let layout = Arc::new(Layout::new(segments));
+        let budget = Budget::new(4_000_000);
+        let reader =
+            SegmentReader::new(Arc::clone(&client), Arc::clone(&layout), 2).with_budget(budget);
+        let stock = reader.ahead();
+        assert!(stock > 0);
+
+        // Enabled but no delivery rate yet: the stock window applies unchanged.
+        let mut reader = reader.with_read_ahead(Some(60));
+        assert_eq!(reader.ahead(), stock);
+
+        // 1 MB/s × 60 s = 60 MB, capped by the 4 MB article budget → 40 segments of 100 kB.
+        reader.set_delivery_rate_for_tests(1_000_000.0);
+        assert_eq!(reader.ahead(), 40);
+
+        // 1 kB/s × 60 s = 60 kB, below one segment: no widening past the stock window.
+        reader.set_delivery_rate_for_tests(1_000.0);
+        assert_eq!(reader.ahead(), stock);
+
+        // Disabled again: rate never widens.
+        let reader = reader.with_read_ahead(None);
+        assert_eq!(reader.ahead(), stock);
+    }
 
     #[test]
     fn fills_whole_ts_packets_inside_the_gap_only() {

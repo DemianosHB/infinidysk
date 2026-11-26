@@ -16,7 +16,7 @@ mod session;
 use std::collections::HashMap;
 use std::hash::RandomState;
 use std::io::Cursor;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -261,6 +261,8 @@ pub struct Vfs {
     publisher: bool,
     /// Bytes each reader keeps in flight ahead of its position.
     read_ahead: AtomicU64,
+    /// Read-ahead PAR2 repair window in seconds for files opened from now on; 0 disables.
+    read_ahead_repair: AtomicU32,
     /// Damage caps for gap-tolerant media; off, every file stops at its 3rd fill in a row.
     gap_tolerance: AtomicBool,
     /// Holes of recently read files, shared by all their readers.
@@ -320,6 +322,7 @@ impl Vfs {
             fences: fence::Fences::default(),
             publisher: false,
             read_ahead: AtomicU64::new(read_ahead),
+            read_ahead_repair: AtomicU32::new(0),
             gap_tolerance: AtomicBool::new(true),
             gaps: Arc::default(),
             mount_dir: mount_dir.trim_end_matches('/').to_owned(),
@@ -397,6 +400,13 @@ impl Vfs {
     /// Read-ahead for files opened from now on.
     pub fn set_read_ahead(&self, bytes: u64) {
         self.read_ahead.store(bytes, Ordering::Relaxed);
+    }
+
+    /// Read-ahead PAR2 repair window in seconds for files opened from now on (v1 fork
+    /// `repair.readahead.*`); `None` disables the widening.
+    pub fn set_read_ahead_repair(&self, window_seconds: Option<u32>) {
+        self.read_ahead_repair
+            .store(window_seconds.unwrap_or(0), Ordering::Relaxed);
     }
 
     /// Whether gap-tolerant media may play past damage up to the health caps.
@@ -714,6 +724,10 @@ impl Vfs {
                     budget: self.budget.clone(),
                     cache: self.cache.clone(),
                     read_ahead: self.read_ahead.load(Ordering::Relaxed),
+                    read_ahead_repair: {
+                        let window = self.read_ahead_repair.load(Ordering::Relaxed);
+                        (window > 0).then_some(window)
+                    },
                     trace: session.trace(),
                     report: self.report.clone(),
                     gaps: Some((
@@ -746,6 +760,7 @@ impl Vfs {
             budget: self.budget.clone(),
             cache: self.cache.clone(),
             read_ahead: 0,
+            read_ahead_repair: None,
             trace: None,
             report: None,
             gaps: None,
@@ -865,7 +880,18 @@ impl Vfs {
 
     /// Like [`open_analysis`](Self::open_analysis), but uncached, for a file not stored yet.
     pub fn open_meta(&self, meta: &FileMeta) -> Result<Reader, Error> {
-        Ok(Reader::new(meta, None, &self.client, &self.budget, None, 0, None, None)?.into_strict())
+        Ok(Reader::new(
+            meta,
+            None,
+            &self.client,
+            &self.budget,
+            None,
+            0,
+            None,
+            None,
+            None,
+        )?
+        .into_strict())
     }
 }
 

@@ -412,6 +412,11 @@ pub async fn serve(
         vfs
     });
     vfs.set_gap_tolerance(settings.health.degraded_tolerance);
+    // Read-ahead repair needs PAR2 repair (v1: `repair.par2-enabled`).
+    vfs.set_read_ahead_repair(
+        (settings.repair.readahead_enabled && infinidysk_core::experiment("par2-repair"))
+            .then_some(settings.repair.readahead_window_seconds),
+    );
     let handoff = Arc::new(crate::handoff::Writer::new(
         Arc::clone(&vfs),
         (boot.uid, boot.gid),
@@ -1023,6 +1028,10 @@ impl Live {
         self.dav
             .vfs
             .set_read_ahead(u64::from(tuning.read_ahead_mb) * MB);
+        self.dav.vfs.set_read_ahead_repair(
+            (settings.repair.readahead_enabled && infinidysk_core::experiment("par2-repair"))
+                .then_some(settings.repair.readahead_window_seconds),
+        );
         self.dav
             .vfs
             .set_gap_tolerance(settings.health.degraded_tolerance);

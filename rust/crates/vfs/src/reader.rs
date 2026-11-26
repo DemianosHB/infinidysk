@@ -35,6 +35,7 @@ impl Reader {
         budget: &Budget,
         cache: Option<&Arc<Cache>>,
         read_ahead: u64,
+        read_ahead_repair: Option<u32>,
         trace: Option<&Arc<Trace>>,
         report: Option<&Report>,
     ) -> Result<Self, Error> {
@@ -46,7 +47,8 @@ impl Reader {
                 .with_omitted(omitted)
                 .map_err(|_| Error::Corrupt("omitted segment identity differs from layout"))?;
             let mut reader = SegmentReader::new(Arc::clone(client), Arc::new(layout), prefetch)
-                .with_budget(budget.clone());
+                .with_budget(budget.clone())
+                .with_read_ahead(read_ahead_repair);
             if let Some(cache) = cache {
                 reader = reader.with_cache(Arc::clone(cache));
             }
@@ -643,6 +645,7 @@ mod tests {
                 &budget,
                 None,
                 read_ahead,
+                None,
                 Some(trace),
                 None,
             )

@@ -29,6 +29,7 @@ pub(crate) struct Opened {
     pub budget: Budget,
     pub cache: Option<Arc<Cache>>,
     pub read_ahead: u64,
+    pub read_ahead_repair: Option<u32>,
     pub trace: Option<Arc<Trace>>,
     pub report: Option<FaultReport>,
     pub gaps: Option<(GapEntries, bool)>,
@@ -58,6 +59,7 @@ impl Opened {
             &self.budget,
             self.cache.as_ref(),
             self.read_ahead,
+            self.read_ahead_repair,
             self.trace.as_ref(),
             report.as_ref(),
         )?;
