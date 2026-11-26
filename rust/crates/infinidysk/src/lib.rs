@@ -35,3 +35,4 @@ mod ui;
 pub mod update;
 pub mod upgrade;
 pub mod warden;
+pub mod watchtower;

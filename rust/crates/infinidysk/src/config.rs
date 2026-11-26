@@ -481,6 +481,10 @@ pub struct Watchtower {
     pub season_bundle_fallback_max_episodes: u32,
     pub auto_throughput: bool,
     pub verbose_logging: bool,
+    /// Global series scope: `latest-season` (default) | `all-aired` | `first-season` | `recent` | `off`.
+    pub series_scope: String,
+    /// v1 default 21600 (6 h), clamp 600..=604800.
+    pub unavailable_retry_seconds: u32,
 }
 
 impl Default for Watchtower {
@@ -513,6 +517,8 @@ impl Default for Watchtower {
             season_bundle_fallback_max_episodes: 50,
             auto_throughput: false,
             verbose_logging: false,
+            series_scope: "latest-season".to_owned(),
+            unavailable_retry_seconds: 21_600,
         }
     }
 }
@@ -577,6 +583,17 @@ impl Watchtower {
     #[must_use]
     pub fn season_bundle_fallback_max_episodes(&self) -> u32 {
         self.season_bundle_fallback_max_episodes.clamp(1, 1000)
+    }
+    #[must_use]
+    pub fn series_scope(&self) -> &str {
+        match self.series_scope.as_str() {
+            "all-aired" | "first-season" | "recent" | "latest-season" | "off" => &self.series_scope,
+            _ => "latest-season",
+        }
+    }
+    #[must_use]
+    pub fn unavailable_retry_seconds(&self) -> u32 {
+        self.unavailable_retry_seconds.clamp(600, 604_800)
     }
     #[must_use]
     pub fn season_bundle_fallback_scope(&self) -> &str {

@@ -661,12 +661,28 @@ pub async fn serve(
     }
     let search =
         crate::search::build_with_service(Arc::clone(&config), Arc::clone(&auth), search_service);
+    // Phase 3: Watchtower service (list sources -> wanted items -> resolve/keep-fresh).
+    let watchtower = crate::watchtower::build(
+        db.clone(),
+        Arc::clone(&config),
+        Arc::clone(&auth),
+        Arc::clone(&search),
+        Arc::clone(&preflight),
+        Arc::clone(&warden),
+    )
+    .await;
+    let watchtower_task = tokio::spawn({
+        let watchtower = Arc::clone(&watchtower);
+        let cancel = cancel.clone();
+        async move { watchtower.run(cancel).await }
+    });
     let play = crate::play::build(
         Arc::clone(&config),
         Arc::clone(&search),
         Arc::clone(&queue),
         db.clone(),
         Arc::clone(&preflight),
+        Some(Arc::clone(&watchtower)),
     );
     let prowlarr_sync =
         crate::prowlarr_sync::build(Arc::clone(&config), Arc::clone(&search), Arc::clone(&auth));
@@ -822,6 +838,7 @@ pub async fn serve(
         .merge(crate::play::router(Arc::clone(&play)))
         .merge(crate::prowlarr_sync::router(prowlarr_sync))
         .merge(crate::warden::router(warden))
+        .merge(crate::watchtower::router(watchtower))
         .merge(hooks)
         .merge(crate::healthcheck::router(healthcheck))
         .merge(admin::router(admin, Arc::clone(&auth)))
@@ -873,6 +890,7 @@ pub async fn serve(
     optimize_task.abort();
     prowlarr_sync_task.abort();
     warden_task.abort();
+    watchtower_task.abort();
     database.stop().await;
     let _ = metrics_task.await;
     let _ = quota_task.await;

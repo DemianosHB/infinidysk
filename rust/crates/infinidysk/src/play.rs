@@ -44,6 +44,7 @@ use crate::config::{ConfigStore, Settings};
 use crate::nzb_fetch::{FetchError, FetchKey, MAX_RESPONSE_BYTES};
 use crate::preflight::{Orchestrator, Verdict};
 use crate::search::{self, Search};
+use crate::watchtower::Watchtower;
 
 /// v1 `NzbFetchTimeout` for the play path (8 s).
 const NZB_FETCH_TIMEOUT: Duration = Duration::from_secs(8);
@@ -65,6 +66,8 @@ pub struct Play {
     pub queue: Arc<Queue>,
     pub db: Db,
     pub preflight: Arc<Orchestrator>,
+    /// Watchtower service for `TryWarmCacheAsync`; `None` in tests without one.
+    pub watchtower: Option<Arc<Watchtower>>,
     /// Play-owned queue items and when a click last touched them (orphan cleanup).
     last_seen: Mutex<HashMap<JobId, Timestamp>>,
     /// In-flight leader leases per content group (v1 `PlayResolutionCoalescer`, simplified).
@@ -79,6 +82,7 @@ pub fn build(
     queue: Arc<Queue>,
     db: Db,
     preflight: Arc<Orchestrator>,
+    watchtower: Option<Arc<Watchtower>>,
 ) -> Arc<Play> {
     Arc::new(Play {
         search,
@@ -86,6 +90,7 @@ pub fn build(
         queue,
         db,
         preflight,
+        watchtower,
         last_seen: Mutex::new(HashMap::new()),
         coalescer: Mutex::new(HashMap::new()),
     })
@@ -453,11 +458,11 @@ async fn handle(state: &Arc<Play>, token: &str, nzb_token: &str, prefix: &str) -
     if entry.profile_token != token {
         return StatusCode::NOT_FOUND.into_response();
     }
-    // Phase 3 (Watchtower) wires `TryWarmCacheAsync` here; until then the hook is a no-op.
-    debug!(
-        "watchtower cache warming not wired yet (Phase 3) for {}/{}",
-        entry.r#type, entry.id
-    );
+    // v1 `WatchtowerStore.TryWarmCacheAsync`: seed the preflight cache from a ready
+    // watchtower item so the play does not re-verify the winner NZB.
+    if let Some(wt) = &state.watchtower {
+        wt.try_warm_cache(&entry.r#type, &entry.id).await;
+    }
     state
         .preflight
         .sessions

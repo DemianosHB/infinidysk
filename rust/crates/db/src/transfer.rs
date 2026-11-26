@@ -76,6 +76,9 @@ pub(crate) const TABLES: &[(&str, Key)] = &[
     ("warden_sources", Key::One("id")),
     ("warden_entries", Key::Two("source_id", "fp")),
     ("watchdog_entries", Key::One("id")),
+    // v1-fork Watchtower (migration 0014).
+    ("list_sources", Key::One("id")),
+    ("wanted_items", Key::One("id")),
 ];
 
 /// Tables a foreign key points at. Their deletes run after every upsert.

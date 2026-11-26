@@ -184,6 +184,7 @@ async fn build_app(
         queue,
         db.clone(),
         preflight,
+        None,
     );
     (play::router(Arc::clone(&play)), play, db)
 }
