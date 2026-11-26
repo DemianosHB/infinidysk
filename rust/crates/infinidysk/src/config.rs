@@ -5,6 +5,7 @@
 use std::collections::HashSet;
 use std::fmt;
 use std::ops::RangeInclusive;
+use std::sync::Arc;
 
 use infinidysk_db::Db;
 use infinidysk_indexer::models::IndexerConfig;
@@ -1861,6 +1862,8 @@ pub struct ConfigStore {
     settings: Settings,
     /// The disk cache folder when none is saved; validation checks it against the mount.
     default_cache_dir: String,
+    /// Wakes subscribers (e.g. the Prowlarr sync loop) after a successful save.
+    changed: Arc<tokio::sync::Notify>,
 }
 
 impl ConfigStore {
@@ -1920,6 +1923,7 @@ impl ConfigStore {
             env,
             settings,
             default_cache_dir,
+            changed: Arc::new(tokio::sync::Notify::new()),
         })
     }
 
@@ -1962,6 +1966,16 @@ impl ConfigStore {
 
     fn env_sets(&self, path: [&str; 2]) -> bool {
         env_sets(&self.env, path)
+    }
+
+    /// Whether an `INFINIDYSK__` variable pins this settings path (v1 `IsEnvironmentManaged`).
+    pub(crate) fn env_managed(&self, path: [&str; 2]) -> bool {
+        self.env_sets(path)
+    }
+
+    /// Wakes on the next successful [`Self::save`] (v1 `ConfigManager.OnConfigChanged`).
+    pub(crate) fn changed(&self) -> Arc<tokio::sync::Notify> {
+        Arc::clone(&self.changed)
     }
 
     /// The RC password about to be stored stays with the server it was stored for, also
@@ -2079,6 +2093,7 @@ impl ConfigStore {
         self.settings = effective(&next, &self.env, &self.default_cache_dir)?;
         publish_proxy(&self.settings);
         self.stored = next;
+        self.changed.notify_waiters();
         Ok(())
     }
 }

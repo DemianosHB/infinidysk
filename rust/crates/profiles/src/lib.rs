@@ -15,6 +15,7 @@ pub mod exclude;
 pub mod filename;
 pub mod hits;
 pub mod identity;
+pub mod preferred;
 pub mod ratelimit;
 
 pub mod resolvers;

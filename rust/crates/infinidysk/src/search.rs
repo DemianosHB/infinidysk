@@ -5,6 +5,13 @@
 //! - `GET /adapters/newznab/{token}/api` — Newznab adapter for a profile (token-scoped, public).
 //! - `GET|OPTIONS /adapters/addon/{token}/manifest.json` — Stremio-style addon manifest
 //!   (token-scoped, public, CORS).
+//! - `GET /api/search/{token}/nzb/{playToken}.nzb` — NZB proxy (v1 `NzbProxyController`).
+//! - `GET|OPTIONS /api/search/{token}/lookup` — JSON search (v1 `JsonSearchController`).
+//! - `POST|OPTIONS /adapters/addon/{token}/failover_order` — reported stream order
+//!   (v1 `FailoverOrderController`).
+//!
+//! The `stream/{type}/{id}.json` and `play/{nzbToken}.mkv` routes need the Phase-3
+//! stream-state/preflight services and land with Phase 3.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -13,23 +20,27 @@ use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use jiff::Timestamp;
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 use infinidysk_indexer::NewznabClient;
+use infinidysk_indexer::http;
 use infinidysk_indexer::models::IndexerConfig;
 use infinidysk_profiles::filename;
 use infinidysk_profiles::hits::HitType;
+use infinidysk_profiles::preferred::{self, PreferredOrderStore};
 use infinidysk_profiles::resolvers::ResolverConfig;
 use infinidysk_profiles::{Resolvers, SearchService, SearchSettings};
 use infinidysk_search::profile::Profile;
 
 use crate::auth::Auth;
 use crate::config::{ConfigStore, Settings};
+use crate::nzb_fetch::{FetchError, FetchKey, MAX_RESPONSE_BYTES, NzbFetchCoalescer};
 use crate::sab::same;
 
 /// Shared state for the search routes.
@@ -37,6 +48,8 @@ pub struct Search {
     pub service: Arc<SearchService>,
     pub config: Arc<RwLock<ConfigStore>>,
     pub auth: Arc<Auth>,
+    pub coalescer: Arc<NzbFetchCoalescer>,
+    pub preferred_order: Arc<PreferredOrderStore>,
 }
 
 /// Builds the [`SearchSettings`] snapshot for the service from the app settings.
@@ -72,6 +85,8 @@ pub async fn build(config: Arc<RwLock<ConfigStore>>, auth: Arc<Auth>) -> Arc<Sea
         service: Arc::new(service_from_settings(&settings)),
         config,
         auth,
+        coalescer: Arc::new(NzbFetchCoalescer::new()),
+        preferred_order: Arc::new(PreferredOrderStore::new()),
     })
 }
 
@@ -86,6 +101,17 @@ pub fn router(state: Arc<Search>) -> Router {
         .route(
             "/adapters/addon/{token}/manifest.json",
             get(manifest).options(manifest_options),
+        )
+        // axum allows no static suffix on a parameter segment, so the `.nzb` suffix is
+        // matched via a wildcard and checked in the handler (v1 route: `{playToken}.nzb`).
+        .route("/api/search/{token}/nzb/{*file}", get(nzb_proxy))
+        .route(
+            "/api/search/{token}/lookup",
+            get(lookup).options(lookup_options),
+        )
+        .route(
+            "/adapters/addon/{token}/failover_order",
+            post(failover_order).options(failover_options),
         )
         .with_state(state)
 }
@@ -103,17 +129,21 @@ impl Search {
 
 /// v1 `ApiKeyValidator`: session cookie / admin key via `Auth::allowed`, or the SAB-style
 /// `apikey` query param / `X-Api-Key` header matching `sab.api_key` or `auth.api_key`.
-async fn require_api_key(State(state): State<Arc<Search>>, req: Request, next: Next) -> Response {
-    if state.auth.allowed(req.headers()).await {
-        return next.run(req).await;
+pub(crate) async fn api_key_allowed(
+    config: &Arc<RwLock<ConfigStore>>,
+    auth: &Arc<Auth>,
+    headers: &HeaderMap,
+    query: Option<&str>,
+) -> bool {
+    if auth.allowed(headers).await {
+        return true;
     }
-    let given = req
-        .headers()
+    let given = headers
         .get("x-api-key")
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned)
         .or_else(|| {
-            req.uri().query().and_then(|q| {
+            query.and_then(|q| {
                 q.split('&').find_map(|p| {
                     p.split_once('=')
                         .filter(|(k, _)| k.eq_ignore_ascii_case("apikey"))
@@ -123,7 +153,7 @@ async fn require_api_key(State(state): State<Arc<Search>>, req: Request, next: N
         });
     if let Some(given) = given {
         let (sab, admin) = {
-            let store = state.config.read().await;
+            let store = config.read().await;
             let s = store.settings();
             let keys = (s.sab.api_key.0.clone(), s.auth.api_key.0.clone());
             drop(store);
@@ -132,8 +162,17 @@ async fn require_api_key(State(state): State<Arc<Search>>, req: Request, next: N
         if (!sab.is_empty() && same(given.as_bytes(), sab.as_bytes()))
             || (!admin.is_empty() && same(given.as_bytes(), admin.as_bytes()))
         {
-            return next.run(req).await;
+            return true;
         }
+    }
+    false
+}
+
+async fn require_api_key(State(state): State<Arc<Search>>, req: Request, next: Next) -> Response {
+    let allowed =
+        api_key_allowed(&state.config, &state.auth, req.headers(), req.uri().query()).await;
+    if allowed {
+        return next.run(req).await;
     }
     (StatusCode::UNAUTHORIZED, "API Key Required").into_response()
 }
@@ -776,4 +815,426 @@ async fn manifest(State(state): State<Arc<Search>>, Path(token): Path<String>) -
         },
     };
     cors_headers(Json(manifest).into_response())
+}
+
+// --- GET /api/search/{token}/nzb/{playToken}.nzb (v1 NzbProxyController) ---
+
+/// v1 `ProfileReleaseName.SanitizeFileName`: invalid filename chars become `_`, trimmed,
+/// empty → "untitled"; `ToNzbFileName` appends `.nzb`.
+fn to_nzb_file_name(title: &str) -> String {
+    if title.trim().is_empty() {
+        return "untitled.nzb".to_owned();
+    }
+    let clean: String = title
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .to_owned();
+    let clean = if clean.is_empty() {
+        "untitled"
+    } else {
+        clean.as_str()
+    };
+    format!("{clean}.nzb")
+}
+
+/// v1 `NzbProxyController.Get`: resolve the play token, then fetch (coalesced, bounded)
+/// the NZB from the source indexer and serve it as an attachment.
+async fn nzb_proxy(
+    State(state): State<Arc<Search>>,
+    Path((token, file)): Path<(String, String)>,
+) -> Response {
+    let Some(play_token) = file.strip_suffix(".nzb") else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let play_token = play_token.to_owned();
+    state.sync_settings().await;
+    if state.service.get_profile(&token).await.is_none() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if !state.service.is_adapter_enabled(&token, "json").await
+        && !state.service.is_adapter_enabled(&token, "newznab").await
+    {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let Some(entry) = state.service.cache().get(&play_token) else {
+        return (StatusCode::NOT_FOUND, "Link expired. Re-search to refresh.").into_response();
+    };
+    if entry.profile_token != token {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let candidate = entry.primary().clone();
+    if candidate.nzb_url.trim().is_empty() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let skip_tls = {
+        let store = state.config.read().await;
+        store
+            .settings()
+            .indexers
+            .should_skip_tls_verification(&candidate.indexer_name)
+    };
+    let key = FetchKey {
+        url: candidate.nzb_url.clone(),
+        proxy_url: candidate.proxy_url.clone().unwrap_or_default(),
+        skip_tls_verification: skip_tls,
+    };
+    let ct = CancellationToken::new();
+    let ua = candidate.indexer_user_agent.clone();
+    let proxy = candidate.proxy_url.clone();
+    let url = candidate.nzb_url.clone();
+    let result = state
+        .coalescer
+        .get_or_fetch(key, &ct, move |hard| {
+            let url = url.clone();
+            let ua = ua.clone();
+            let proxy = proxy.clone();
+            async move {
+                // v1: linked token with CancelAfter(FetchTimeout = 60s).
+                let fetch_ct = CancellationToken::new();
+                let link = hard.clone();
+                let watcher = fetch_ct.clone();
+                tokio::spawn(async move {
+                    link.cancelled().await;
+                    watcher.cancel();
+                });
+                let host = Url::parse(&url)
+                    .ok()
+                    .and_then(|u| u.host_str().map(str::to_owned))
+                    .unwrap_or_default();
+                let client = http::build_client_with_proxy(skip_tls, &host, proxy.as_deref())
+                    .map_err(|_| FetchError::Failed)?;
+                let resp = http::with_timeout(
+                    std::time::Duration::from_secs(60),
+                    &fetch_ct,
+                    http::get(&client, &url, &ua, &fetch_ct, 1),
+                )
+                .await
+                .map_err(|e| match e {
+                    infinidysk_indexer::Error::Cancelled => FetchError::Cancelled,
+                    _ => FetchError::Failed,
+                })?;
+                if !resp.status().is_success() {
+                    return Ok(None);
+                }
+                match http::read_bounded(resp, MAX_RESPONSE_BYTES).await {
+                    Ok(bytes) => Ok(Some(bytes)),
+                    Err(infinidysk_indexer::Error::TooLarge { max_bytes, .. }) => {
+                        tracing::warn!(
+                            url = %url,
+                            limit = max_bytes,
+                            "NZB proxy rejected oversized response"
+                        );
+                        Ok(None)
+                    }
+                    Err(infinidysk_indexer::Error::Cancelled) => Err(FetchError::Cancelled),
+                    Err(_) => Err(FetchError::Failed),
+                }
+            }
+        })
+        .await;
+
+    match result {
+        Err(FetchError::Cancelled) => StatusCode::OK.into_response(),
+        Err(FetchError::Failed) => (
+            StatusCode::BAD_GATEWAY,
+            "Failed to fetch NZB from source indexer.",
+        )
+            .into_response(),
+        Ok(None) => (
+            StatusCode::BAD_GATEWAY,
+            "Source indexer failed to return the NZB.",
+        )
+            .into_response(),
+        Ok(Some(bytes)) => {
+            let mut response = (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "application/x-nzb")],
+                bytes.as_ref().clone(),
+            )
+                .into_response();
+            let disposition = axum::http::HeaderValue::from_str(&format!(
+                "attachment; filename=\"{}\"",
+                to_nzb_file_name(&candidate.title)
+            ))
+            .expect("header value");
+            response
+                .headers_mut()
+                .insert(header::CONTENT_DISPOSITION, disposition);
+            response
+        }
+    }
+}
+
+// --- GET|OPTIONS /api/search/{token}/lookup (v1 JsonSearchController) ---
+
+#[derive(Debug, Deserialize)]
+struct LookupQuery {
+    r#type: Option<String>,
+    id: Option<String>,
+    season: Option<i32>,
+    episode: Option<i32>,
+    q: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LookupItem {
+    title: String,
+    indexer: String,
+    source_indexer: Option<String>,
+    size_bytes: i64,
+    posted_at: Option<Timestamp>,
+    usenet_date: Option<Timestamp>,
+    grabs: Option<i32>,
+    password_flag: Option<i32>,
+    language: Option<String>,
+    subs: Option<String>,
+    info_hash: Option<String>,
+    play_url: String,
+}
+
+async fn lookup_options() -> Response {
+    cors_headers(StatusCode::NO_CONTENT.into_response())
+}
+
+async fn lookup(
+    State(state): State<Arc<Search>>,
+    Path(token): Path<String>,
+    Query(params): Query<LookupQuery>,
+    headers: HeaderMap,
+    uri: Uri,
+) -> Response {
+    if state.service.get_profile(&token).await.is_none() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if !state.service.is_adapter_enabled(&token, "json").await {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let (Some(r#type), Some(id)) = (params.r#type, params.id) else {
+        return cors_headers(
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "type and id are required (type=movie|series, id=tt1234567)."})),
+            )
+                .into_response(),
+        );
+    };
+    if r#type.is_empty() || id.trim().is_empty() {
+        return cors_headers(
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "type and id are required (type=movie|series, id=tt1234567)."})),
+            )
+                .into_response(),
+        );
+    }
+    // v1: series with season+episode and a bare id becomes "{id}:{season}:{episode}".
+    let id = if r#type.eq_ignore_ascii_case("series")
+        && let (Some(season), Some(episode)) = (params.season, params.episode)
+        && !id.contains(':')
+    {
+        format!("{id}:{season}:{episode}")
+    } else {
+        id
+    };
+
+    state.sync_settings().await;
+    let ct = CancellationToken::new();
+    let Some(result) = state
+        .service
+        .search_by_imdb(&token, &r#type, &id, &ct, params.q.as_deref(), false, true)
+        .await
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let base_url = {
+        let store = state.config.read().await;
+        public_base_url(&headers, &uri, &store.settings().network.public_url)
+    };
+    let profile_name = state
+        .service
+        .get_profile(&token)
+        .await
+        .map(|p| p.name)
+        .unwrap_or_default();
+    let items: Vec<LookupItem> = result
+        .candidates
+        .iter()
+        .zip(result.play_tokens.iter())
+        .map(|(c, play_token)| LookupItem {
+            title: c.title.clone(),
+            indexer: c.indexer_name.clone(),
+            source_indexer: c.source_indexer_name.clone(),
+            size_bytes: c.size,
+            posted_at: c.posted,
+            usenet_date: c.usenet_date,
+            grabs: c.grabs,
+            password_flag: c.password,
+            language: c.language.clone(),
+            subs: c.subs.clone(),
+            info_hash: c.info_hash.clone(),
+            play_url: format!("{base_url}/api/search/{token}/play/{play_token}.mkv"),
+        })
+        .collect();
+    let count = items.len();
+    cors_headers(
+        Json(serde_json::json!({
+            "profile": profile_name,
+            "type": result.r#type,
+            "id": result.id,
+            "count": count,
+            "results": items,
+        }))
+        .into_response(),
+    )
+}
+
+// --- POST|OPTIONS /adapters/addon/{token}/failover_order (v1 FailoverOrderController) ---
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FailoverOrderRequest {
+    streams: Option<Vec<FailoverStream>>,
+    order: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FailoverStream {
+    #[allow(dead_code)]
+    name: Option<String>,
+    failover_id: Option<String>,
+}
+
+fn cors_headers_with_methods(mut response: Response, methods: &'static str) -> Response {
+    let headers = response.headers_mut();
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        "*".parse().expect("static header"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_METHODS,
+        methods.parse().expect("static header"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        "*".parse().expect("static header"),
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        "no-store, no-cache, must-revalidate"
+            .parse()
+            .expect("static header"),
+    );
+    response
+}
+
+async fn failover_options() -> Response {
+    cors_headers_with_methods(StatusCode::NO_CONTENT.into_response(), "POST, OPTIONS")
+}
+
+async fn failover_order(
+    State(state): State<Arc<Search>>,
+    Path(token): Path<String>,
+    Json(body): Json<FailoverOrderRequest>,
+) -> Response {
+    if state.service.get_profile(&token).await.is_none() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if !state.service.is_adapter_enabled(&token, "addon").await {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    // v1: `streams[*].failoverId` when `streams` is present, else `order`; blank entries dropped.
+    let ids: Vec<String> = match &body.streams {
+        Some(streams) => streams
+            .iter()
+            .filter_map(|s| s.failover_id.clone())
+            .filter(|x| !x.trim().is_empty())
+            .collect(),
+        None => body
+            .order
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|x| !x.trim().is_empty())
+            .collect(),
+    };
+    if ids.is_empty() {
+        return cors_headers_with_methods(
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"ok": false, "error": "no failoverIds in body"})),
+            )
+                .into_response(),
+            "POST, OPTIONS",
+        );
+    }
+
+    let mut groups: std::collections::HashMap<(String, String), Vec<String>> =
+        std::collections::HashMap::new();
+    let mut seen: std::collections::HashMap<(String, String), std::collections::HashSet<String>> =
+        std::collections::HashMap::new();
+    let mut matched = 0usize;
+    for id in &ids {
+        let Some(entry) = state.service.cache().get(id) else {
+            continue;
+        };
+        if entry.profile_token != token {
+            continue;
+        }
+        let c = entry.primary();
+        let key = preferred::release_identity_key(
+            c.size,
+            c.poster.as_deref(),
+            c.usenet_date,
+            Some(&c.nzb_url),
+        );
+        let gk = (entry.r#type.clone(), entry.id.clone());
+        let list = groups.entry(gk.clone()).or_default();
+        let seen_set = seen.entry(gk).or_default();
+        if seen_set.insert(key.clone()) {
+            list.push(key);
+            matched += 1;
+        }
+    }
+    for ((r#type, id), keys) in &groups {
+        state
+            .preferred_order
+            .report(&token, r#type, id, "aiostreams", keys);
+    }
+    if !groups.is_empty() {
+        tracing::info!(
+            profile_token = %token,
+            matched,
+            total = ids.len(),
+            titles = groups.len(),
+            "FailoverOrder reported"
+        );
+    }
+    let titles: Vec<serde_json::Value> = groups
+        .iter()
+        .map(|((r#type, id), keys)| {
+            serde_json::json!({"type": r#type, "id": id, "count": keys.len()})
+        })
+        .collect();
+    cors_headers_with_methods(
+        Json(serde_json::json!({
+            "ok": true,
+            "total": ids.len(),
+            "matched": matched,
+            "unmatched": ids.len() - matched,
+            "titles": titles,
+        }))
+        .into_response(),
+        "POST, OPTIONS",
+    )
 }
