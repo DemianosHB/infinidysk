@@ -22,6 +22,7 @@ use uuid::Uuid;
 mod backup;
 pub mod legacy_repairs;
 pub mod metrics;
+pub mod play;
 pub mod repair;
 pub mod repair_jobs;
 pub mod transfer;
@@ -301,7 +302,7 @@ impl Item {
 }
 
 #[derive(sqlx::FromRow)]
-struct ItemRow {
+pub(crate) struct ItemRow {
     id: Uuid,
     parent_id: Option<Uuid>,
     name: String,
@@ -547,7 +548,7 @@ pub struct HistoryEntry {
 }
 
 #[derive(sqlx::FromRow)]
-struct HistoryRow {
+pub(crate) struct HistoryRow {
     id: Uuid,
     created_at: i64,
     file_name: String,

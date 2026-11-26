@@ -72,6 +72,10 @@ pub(crate) const TABLES: &[(&str, Key)] = &[
     ("accounts", Key::Two("kind", "username")),
     ("handoff_files", Key::One("path")),
     ("library_files", Key::One("source")),
+    // v1-fork Phase 3 (migration 0013).
+    ("warden_sources", Key::One("id")),
+    ("warden_entries", Key::Two("source_id", "fp")),
+    ("watchdog_entries", Key::One("id")),
 ];
 
 /// Tables a foreign key points at. Their deletes run after every upsert.

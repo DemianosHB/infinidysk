@@ -42,9 +42,11 @@ pub type RemoteEntrySpec = (String, i64, i32, String);
 
 impl Db {
     pub async fn warden_count(&self) -> Result<i64, Error> {
-        Ok(on!(self, pool => sqlx::query_scalar("SELECT COUNT(*) FROM warden_entries")
+        Ok(
+            on!(self, pool => sqlx::query_scalar("SELECT COUNT(*) FROM warden_entries")
             .fetch_one(pool)
-            .await?))
+            .await?),
+        )
     }
 
     pub async fn warden_local_count(&self) -> Result<i64, Error> {
@@ -72,8 +74,7 @@ impl Db {
             )
             .bind(q)
             .fetch_one(pool)
-            .await?)
-        )
+            .await?))
     }
 
     /// v1 `MarkDead` for the local source: upsert with n+1 and merged backbones.
@@ -147,8 +148,7 @@ impl Db {
                  ORDER BY CASE WHEN s.id = 'local' THEN 0 ELSE 1 END, s.sort, s.name"
             )
             .fetch_all(pool)
-            .await?)
-        )
+            .await?))
     }
 
     /// v1 `AddSource`.
@@ -371,8 +371,7 @@ impl Db {
             )
             .bind(source_id)
             .fetch_all(pool)
-            .await?)
-        )
+            .await?))
     }
 
     /// Replaces the whole store (import): delete all non-local sources + entries, insert the given ones.
@@ -430,7 +429,11 @@ impl Db {
     }
 
     /// Deletes entries of a source beyond the cap, oldest first (v1 `PruneSourceEntries`).
-    pub async fn warden_prune_source_entries(&self, source_id: &str, max_entries: i64) -> Result<i64, Error> {
+    pub async fn warden_prune_source_entries(
+        &self,
+        source_id: &str,
+        max_entries: i64,
+    ) -> Result<i64, Error> {
         let max_entries = max_entries.max(0);
         Ok(on!(
             self,
@@ -470,7 +473,10 @@ mod tests {
 
     #[test]
     fn backbones_merge_sorted_deduped() {
-        assert_eq!(merge_backbones("b.com,a.com", "c.com,a.com"), "a.com,b.com,c.com");
+        assert_eq!(
+            merge_backbones("b.com,a.com", "c.com,a.com"),
+            "a.com,b.com,c.com"
+        );
         assert_eq!(merge_backbones("", ""), "");
     }
 }

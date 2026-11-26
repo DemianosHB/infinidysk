@@ -16,10 +16,10 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
-use infinidysk_db::warden::{
-    RemoteEntrySpec, WardenEntry, WardenSource, LOCAL_SOURCE_ID, TRUST_CORROBORATE, TRUST_FULL,
-};
 use infinidysk_db::Db;
+use infinidysk_db::warden::{
+    LOCAL_SOURCE_ID, RemoteEntrySpec, TRUST_CORROBORATE, TRUST_FULL, WardenEntry, WardenSource,
+};
 use infinidysk_profiles::preferred;
 
 use crate::auth::Auth;
@@ -37,7 +37,9 @@ pub fn is_valid_fp(fp: Option<&str>) -> bool {
     fp.is_some_and(|f| {
         f.len() == 36
             && f.starts_with("wd1:")
-            && f[4..].bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+            && f[4..]
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
     })
 }
 
@@ -83,13 +85,8 @@ async fn require_api_key(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
-    let allowed = api_key_allowed(
-        &state.config,
-        &state.auth,
-        req.headers(),
-        req.uri().query(),
-    )
-    .await;
+    let allowed =
+        api_key_allowed(&state.config, &state.auth, req.headers(), req.uri().query()).await;
     if allowed {
         return next.run(req).await;
     }
@@ -135,9 +132,7 @@ impl Warden {
         };
         let mut agree = 0i64;
         for (trust, backbones, source_id) in rows {
-            if scope
-                && source_id != LOCAL_SOURCE_ID
-                && !backbone_in_scope(&backbones, &scope_roots)
+            if scope && source_id != LOCAL_SOURCE_ID && !backbone_in_scope(&backbones, &scope_roots)
             {
                 continue;
             }
@@ -224,8 +219,8 @@ impl Warden {
             if s.kind != "remote" || !s.enabled {
                 continue;
             }
-            let due = s.last_checked == 0
-                || now - s.last_checked >= i64::from(s.refresh_hours) * 3600;
+            let due =
+                s.last_checked == 0 || now - s.last_checked >= i64::from(s.refresh_hours) * 3600;
             if !due {
                 continue;
             }
@@ -244,8 +239,14 @@ impl Warden {
                     {
                         warn!(reason = %e, source = %s.id, "warden source refresh failed");
                     }
-                    let _ = self.db.warden_source_status(&s.id, "ok", etag.as_deref(), now).await;
-                    let _ = self.db.warden_prune_source_entries(&s.id, max_entries).await;
+                    let _ = self
+                        .db
+                        .warden_source_status(&s.id, "ok", etag.as_deref(), now)
+                        .await;
+                    let _ = self
+                        .db
+                        .warden_prune_source_entries(&s.id, max_entries)
+                        .await;
                 }
                 Err(e) => {
                     debug!(reason = %e, source = %s.id, url = %url, "warden bundle fetch failed");
@@ -392,12 +393,22 @@ fn clamp_refresh_hours(h: Option<i32>) -> i32 {
     h.unwrap_or(24).clamp(1, 24 * 365)
 }
 
-async fn add_source(State(state): State<Arc<Warden>>, Json(body): Json<AddSourceRequest>) -> Response {
+async fn add_source(
+    State(state): State<Arc<Warden>>,
+    Json(body): Json<AddSourceRequest>,
+) -> Response {
     let kind = body.kind.unwrap_or_else(|| "remote".to_owned());
     if kind != "remote" && kind != "local" {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"status": false, "error": "kind must be remote or local"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"status": false, "error": "kind must be remote or local"})),
+        )
+            .into_response();
     }
-    let id = format!("src_{}", uuid::Uuid::new_v4().simple().to_string()[..12].to_owned());
+    let id = format!(
+        "src_{}",
+        uuid::Uuid::new_v4().simple().to_string()[..12].to_owned()
+    );
     let name = body
         .name
         .as_deref()
@@ -437,13 +448,19 @@ struct UpdateSourceRequest {
     refresh_hours: Option<i32>,
 }
 
-async fn update_source(State(state): State<Arc<Warden>>, Json(body): Json<UpdateSourceRequest>) -> Response {
+async fn update_source(
+    State(state): State<Arc<Warden>>,
+    Json(body): Json<UpdateSourceRequest>,
+) -> Response {
     let trust = body.trust.as_deref().map(|t| normalize_trust(Some(t)));
     let ok = state
         .db
         .warden_update_source(
             &body.id,
-            body.name.as_deref().map(str::trim).filter(|n| !n.is_empty()),
+            body.name
+                .as_deref()
+                .map(str::trim)
+                .filter(|n| !n.is_empty()),
             body.url.as_deref().map(str::trim).filter(|u| !u.is_empty()),
             body.enabled,
             trust.as_deref(),
@@ -463,8 +480,15 @@ struct RemoveSourceRequest {
     id: String,
 }
 
-async fn remove_source(State(state): State<Arc<Warden>>, Json(body): Json<RemoveSourceRequest>) -> Response {
-    let ok = state.db.warden_delete_source(&body.id).await.unwrap_or(false);
+async fn remove_source(
+    State(state): State<Arc<Warden>>,
+    Json(body): Json<RemoveSourceRequest>,
+) -> Response {
+    let ok = state
+        .db
+        .warden_delete_source(&body.id)
+        .await
+        .unwrap_or(false);
     if ok {
         Json(serde_json::json!({"status": true})).into_response()
     } else {
@@ -519,10 +543,18 @@ async fn export(State(state): State<Arc<Warden>>) -> Response {
 async fn import(State(state): State<Arc<Warden>>, body: axum::body::Bytes) -> Response {
     let doc: Result<WardenBackup, _> = serde_json::from_slice(&body);
     let Ok(doc) = doc else {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"status": false, "error": "invalid warden backup JSON"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"status": false, "error": "invalid warden backup JSON"})),
+        )
+            .into_response();
     };
     if doc.entries.len() > MAX_RECORDS || body.len() > MAX_RECORD_CHARS * 64 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"status": false, "error": "backup too large"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"status": false, "error": "backup too large"})),
+        )
+            .into_response();
     }
     let sources: Vec<WardenSource> = doc
         .sources
@@ -554,7 +586,9 @@ async fn import(State(state): State<Arc<Warden>>, body: axum::body::Bytes) -> Re
         })
         .collect();
     match state.db.warden_replace_all(&sources, &entries).await {
-        Ok(()) => Json(serde_json::json!({"status": true, "entries": entries.len()})).into_response(),
+        Ok(()) => {
+            Json(serde_json::json!({"status": true, "entries": entries.len()})).into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"status": false, "error": e.to_string()})),
@@ -591,17 +625,28 @@ async fn sources_export() -> Response {
 async fn sources_import(State(state): State<Arc<Warden>>, body: axum::body::Bytes) -> Response {
     let doc: Result<SourcesBundle, _> = serde_json::from_slice(&body);
     let Ok(doc) = doc else {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"status": false, "error": "invalid sources bundle"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"status": false, "error": "invalid sources bundle"})),
+        )
+            .into_response();
     };
     if doc.sources.len() > 1000 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"status": false, "error": "too many sources"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"status": false, "error": "too many sources"})),
+        )
+            .into_response();
     }
     let specs: Vec<(String, String, Option<String>, String, i32)> = doc
         .sources
         .into_iter()
         .map(|s| {
             (
-                format!("src_{}", uuid::Uuid::new_v4().simple().to_string()[..12].to_owned()),
+                format!(
+                    "src_{}",
+                    uuid::Uuid::new_v4().simple().to_string()[..12].to_owned()
+                ),
                 s.name,
                 Some(s.url),
                 normalize_trust(s.trust.as_deref()),
@@ -611,7 +656,8 @@ async fn sources_import(State(state): State<Arc<Warden>>, body: axum::body::Byte
         .collect();
     match state.db.warden_import_remote_sources(&specs).await {
         Ok((added, skipped)) => {
-            Json(serde_json::json!({"status": true, "added": added, "skipped": skipped})).into_response()
+            Json(serde_json::json!({"status": true, "added": added, "skipped": skipped}))
+                .into_response()
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -640,7 +686,10 @@ struct BundleDoc {
 
 /// Fetches a remote warden bundle: JSON with `entries` of `fp`/`deadAt`/`n`/`backbones`
 /// (or a bare array), with optional `ETag` handling.
-async fn fetch_bundle(url: &str, ct: &CancellationToken) -> Result<(Vec<RemoteEntrySpec>, Option<String>), String> {
+async fn fetch_bundle(
+    url: &str,
+    ct: &CancellationToken,
+) -> Result<(Vec<RemoteEntrySpec>, Option<String>), String> {
     use infinidysk_indexer::http;
     let host = reqwest::Url::parse(url)
         .ok()
@@ -662,7 +711,9 @@ async fn fetch_bundle(url: &str, ct: &CancellationToken) -> Result<(Vec<RemoteEn
         .get(reqwest::header::ETAG)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
-    let bytes = http::read_bounded(resp, MAX_DECOMPRESSED_BYTES).await.map_err(|e| e.to_string())?;
+    let bytes = http::read_bounded(resp, MAX_DECOMPRESSED_BYTES)
+        .await
+        .map_err(|e| e.to_string())?;
     let parsed: Result<BundleDoc, _> = serde_json::from_slice(&bytes);
     let entries = if let Ok(b) = parsed {
         b.entries
@@ -724,6 +775,9 @@ mod tests {
 
     #[test]
     fn merge_backbones_works() {
-        assert_eq!(infinidysk_db::warden::merge_backbones("b.com", "a.com,b.com"), "a.com,b.com");
+        assert_eq!(
+            infinidysk_db::warden::merge_backbones("b.com", "a.com,b.com"),
+            "a.com,b.com"
+        );
     }
 }

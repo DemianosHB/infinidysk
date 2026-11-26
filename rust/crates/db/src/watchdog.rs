@@ -142,8 +142,7 @@ impl Db {
             )
             .bind(limit)
             .fetch_all(pool)
-            .await?)
-        )
+            .await?))
     }
 
     /// v1 `ClearWatchdogEntries`: delete all (or up to `limit`) entries.

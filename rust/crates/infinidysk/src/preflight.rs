@@ -174,20 +174,35 @@ fn pick_sample_segments(doc: &nzb::Nzb, sample_count: usize) -> Vec<String> {
         .iter()
         .filter(|f| !f.segments.is_empty() && !is_par2(&f.subject))
         .max_by_key(|f| size_of(f));
-    let any_file = data_file
-        .or_else(|| doc.files.iter().filter(|f| !f.segments.is_empty()).max_by_key(|f| size_of(f)));
-    let Some(file) = any_file else { return Vec::new() };
+    let any_file = data_file.or_else(|| {
+        doc.files
+            .iter()
+            .filter(|f| !f.segments.is_empty())
+            .max_by_key(|f| size_of(f))
+    });
+    let Some(file) = any_file else {
+        return Vec::new();
+    };
     let segs = &file.segments;
     let n = sample_count.min(segs.len());
     if n <= 1 {
         return vec![segs[0].id.clone()];
     }
     let mut indices = std::collections::BTreeSet::new();
+    // v1: (int)Math.Round(i * (count - 1.0) / (n - 1)) with C#'s MidpointRounding.ToEven,
+    // computed in integer math: round-half-even of num/den.
+    let len1 = u128::try_from(segs.len() - 1).unwrap_or(u128::MAX);
+    let den = u128::try_from(n - 1).unwrap_or(u128::MAX);
     for i in 0..n {
-        // v1: Math.Round(i * (count - 1) / (n - 1))
-        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss, reason = "v1 Math.Round of a non-negative index")]
-        let idx = ((i as f64 * (segs.len() - 1) as f64) / (n - 1) as f64).round() as usize;
-        indices.insert(idx.min(segs.len() - 1));
+        let num = u128::try_from(i).unwrap_or(u128::MAX) * len1;
+        let (q, r) = (num / den, num % den);
+        let rounded = if 2 * r > den || (2 * r == den && q % 2 == 1) {
+            q + 1
+        } else {
+            q
+        };
+        let idx = usize::try_from(rounded.min(len1)).unwrap_or(segs.len() - 1);
+        indices.insert(idx);
     }
     indices.into_iter().map(|i| segs[i].id.clone()).collect()
 }
@@ -236,7 +251,8 @@ impl PreflightCache {
             Some(_) => {
                 let e = entries.remove(nzb_url).expect("present");
                 let mut current = self.current_bytes.lock().expect("lock");
-                *current = current.saturating_sub(e.nzb_bytes.as_ref().map_or(0, |b| b.len() as u64));
+                *current =
+                    current.saturating_sub(e.nzb_bytes.as_ref().map_or(0, |b| b.len() as u64));
                 drop(current);
                 drop(entries);
                 None
@@ -271,14 +287,16 @@ impl PreflightCache {
             .collect();
         for k in expired {
             if let Some(e) = entries.remove(&k) {
-                *current = current.saturating_sub(e.nzb_bytes.as_ref().map_or(0, |b| b.len() as u64));
+                *current =
+                    current.saturating_sub(e.nzb_bytes.as_ref().map_or(0, |b| b.len() as u64));
             }
         }
         if let Some(old) = entries.remove(nzb_url) {
             *current = current.saturating_sub(old.nzb_bytes.as_ref().map_or(0, |b| b.len() as u64));
         }
         // Evict soonest-expiring until the budget fits.
-        while (entries.len() >= PREFLIGHT_MAX_CACHE_ENTRIES || *current + len > PREFLIGHT_MAX_CACHE_BYTES)
+        while (entries.len() >= PREFLIGHT_MAX_CACHE_ENTRIES
+            || *current + len > PREFLIGHT_MAX_CACHE_BYTES)
             && !entries.is_empty()
         {
             let Some(oldest) = entries
@@ -289,10 +307,13 @@ impl PreflightCache {
                 break;
             };
             if let Some(e) = entries.remove(&oldest) {
-                *current = current.saturating_sub(e.nzb_bytes.as_ref().map_or(0, |b| b.len() as u64));
+                *current =
+                    current.saturating_sub(e.nzb_bytes.as_ref().map_or(0, |b| b.len() as u64));
             }
         }
-        if entries.len() < PREFLIGHT_MAX_CACHE_ENTRIES && *current + len <= PREFLIGHT_MAX_CACHE_BYTES {
+        if entries.len() < PREFLIGHT_MAX_CACHE_ENTRIES
+            && *current + len <= PREFLIGHT_MAX_CACHE_BYTES
+        {
             entries.insert(
                 nzb_url.to_owned(),
                 CacheEntry {
@@ -309,11 +330,8 @@ impl PreflightCache {
     pub fn invalidate(&self, nzb_url: &str) {
         let mut entries = self.entries.lock().expect("lock");
         if let Some(e) = entries.remove(nzb_url) {
-            *self.current_bytes.lock().expect("lock") = self
-                .current_bytes
-                .lock()
-                .expect("lock")
-                .saturating_sub(e.nzb_bytes.as_ref().map_or(0, |b| b.len() as u64));
+            let mut current = self.current_bytes.lock().expect("lock");
+            *current = current.saturating_sub(e.nzb_bytes.as_ref().map_or(0, |b| b.len() as u64));
         }
     }
 }
@@ -361,12 +379,18 @@ impl SessionRegistry {
     }
 }
 
-/// v1 `CandidateNegativeCache`: failed (queue-failure) and stalled (serving-stall) marks,
-/// each with its own TTL from `play.*`.
+/// v1 `CandidateNegativeCache`: failed (queue-failure), stalled (serving-stall, shorter
+/// TTL), broken-history-item and broken-file-name marks; TTLs come from `play.*`.
 #[derive(Default)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "each map holds the marked-at timestamp"
+)]
 pub struct CandidateNegativeCache {
     failed_at: Mutex<HashMap<String, Timestamp>>,
     stalled_at: Mutex<HashMap<String, Timestamp>>,
+    broken_history_at: Mutex<HashMap<String, Timestamp>>,
+    broken_file_at: Mutex<HashMap<String, Timestamp>>,
 }
 
 impl CandidateNegativeCache {
@@ -416,6 +440,62 @@ impl CandidateNegativeCache {
             map.retain(|_, at| *at > cutoff);
         }
     }
+
+    /// v1 `IsHistoryItemBroken`; `history_item_id` is the job id as lowercase hex.
+    pub fn is_history_broken(&self, history_item_id: &str, ttl: Duration) -> bool {
+        warm(&self.broken_history_at, history_item_id, ttl)
+    }
+
+    pub fn mark_history_broken(&self, history_item_id: &str) {
+        let mut map = self.broken_history_at.lock().expect("lock");
+        map.insert(history_item_id.to_owned(), Timestamp::now());
+        if map.len() > 512 {
+            let cutoff = Timestamp::now() - Duration::from_secs(3600);
+            map.retain(|_, at| *at > cutoff);
+        }
+    }
+
+    /// v1 `SnapshotBrokenHistoryItems`: warm broken history ids right now.
+    pub fn snapshot_broken_history_items(&self, ttl: Duration) -> Vec<String> {
+        let now = Timestamp::now();
+        let map = self.broken_history_at.lock().expect("lock");
+        map.iter()
+            .filter(|(_, at)| now.as_second() - at.as_second() < ttl.as_secs().cast_signed())
+            .map(|(k, _)| k.clone())
+            .collect()
+    }
+
+    /// v1 `IsFileNameBroken` (keyed by the generated `.nzb` file name, as v1 stores it).
+    pub fn is_file_name_broken(&self, file_name: &str, ttl: Duration) -> bool {
+        if file_name.is_empty() {
+            return false;
+        }
+        warm(&self.broken_file_at, file_name, ttl)
+    }
+
+    pub fn mark_file_name_broken(&self, file_name: &str) {
+        if file_name.is_empty() {
+            return;
+        }
+        let mut map = self.broken_file_at.lock().expect("lock");
+        map.insert(file_name.to_owned(), Timestamp::now());
+        if map.len() > 512 {
+            let cutoff = Timestamp::now() - Duration::from_secs(3600);
+            map.retain(|_, at| *at > cutoff);
+        }
+    }
+}
+
+fn warm(map: &Mutex<HashMap<String, Timestamp>>, key: &str, ttl: Duration) -> bool {
+    let now = Timestamp::now();
+    let mut map = map.lock().expect("lock");
+    if let Some(at) = map.get(key) {
+        if now.as_second() - at.as_second() < ttl.as_secs().cast_signed() {
+            return true;
+        }
+        map.remove(key);
+    }
+    false
 }
 
 /// v1 `PreflightOrchestrator`: background verification of the top search candidates.
@@ -562,7 +642,10 @@ impl Orchestrator {
         0
     }
 
-    #[expect(clippy::too_many_arguments, reason = "v1 PreflightCandidateAsync parameters")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "v1 PreflightCandidateAsync parameters"
+    )]
     async fn preflight_candidate(
         &self,
         mode: &str,
@@ -576,7 +659,11 @@ impl Orchestrator {
         if ct.is_cancelled() {
             return false;
         }
-        let fp = preferred::warden_fingerprint(candidate.size, candidate.poster.as_deref(), candidate.usenet_date);
+        let fp = preferred::warden_fingerprint(
+            candidate.size,
+            candidate.poster.as_deref(),
+            candidate.usenet_date,
+        );
         if self.warden.is_dead_anywhere(fp.as_deref()).await {
             return false;
         }
@@ -589,7 +676,9 @@ impl Orchestrator {
                     &candidate.indexer_name,
                     HitType::Download,
                     indexer.download_limit.map(i64::from),
-                    indexer.hit_limit_reset_time.and_then(|h| i32::try_from(h).ok()),
+                    indexer
+                        .hit_limit_reset_time
+                        .and_then(|h| i32::try_from(h).ok()),
                     now,
                 )
                 .await;
@@ -602,7 +691,12 @@ impl Orchestrator {
             if self
                 .search
                 .rate_limiter()
-                .try_wait(&candidate.indexer_name, indexer.max_requests_per_minute, max_wait, ct)
+                .try_wait(
+                    &candidate.indexer_name,
+                    indexer.max_requests_per_minute,
+                    max_wait,
+                    ct,
+                )
                 .await
                 .is_err()
             {
@@ -815,14 +909,29 @@ mod tests {
     #[test]
     fn cache_budget_and_ttl() {
         let c = PreflightCache::new();
-        c.set_verified("u", Some(vec![1, 2, 3]), Verdict::Available, None, Duration::from_secs(60));
+        c.set_verified(
+            "u",
+            Some(vec![1, 2, 3]),
+            Verdict::Available,
+            None,
+            Duration::from_secs(60),
+        );
         let hit = c.get("u").expect("hit");
         assert_eq!(hit.verdict, Verdict::Available);
-        assert_eq!(hit.nzb_bytes.as_deref().map(Vec::as_slice), Some(&[1, 2, 3][..]));
+        assert_eq!(
+            hit.nzb_bytes.as_deref().map(Vec::as_slice),
+            Some(&[1, 2, 3][..])
+        );
         c.set_verified("u", None, Verdict::Dead, None, Duration::from_millis(0));
         std::thread::sleep(Duration::from_millis(5));
         assert!(c.get("u").is_none());
-        c.set_verified("v", Some(vec![9]), Verdict::Timeout, None, Duration::from_secs(60));
+        c.set_verified(
+            "v",
+            Some(vec![9]),
+            Verdict::Timeout,
+            None,
+            Duration::from_secs(60),
+        );
         c.invalidate("v");
         assert!(c.get("v").is_none());
     }

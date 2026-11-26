@@ -361,6 +361,39 @@ impl Play {
     }
 }
 
+/// v1 `grab.stall-failover-*` — abort a stalled play candidate and try the next one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Grab {
+    /// v1 default true.
+    pub stall_failover_enabled: bool,
+    /// v1 default 2, clamp 2..=60.
+    pub stall_failover_window_seconds: u32,
+    /// v1 default 5, clamp 5..=120.
+    pub stall_failover_ceiling_seconds: u32,
+}
+
+impl Default for Grab {
+    fn default() -> Self {
+        Self {
+            stall_failover_enabled: true,
+            stall_failover_window_seconds: 2,
+            stall_failover_ceiling_seconds: 5,
+        }
+    }
+}
+
+impl Grab {
+    #[must_use]
+    pub fn stall_failover_window_seconds(&self) -> u32 {
+        self.stall_failover_window_seconds.clamp(2, 60)
+    }
+    #[must_use]
+    pub fn stall_failover_ceiling_seconds(&self) -> u32 {
+        self.stall_failover_ceiling_seconds.clamp(5, 120)
+    }
+}
+
 /// v1 `warden.*` — the dead-release list (Phase 3).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", default)]
@@ -487,7 +520,11 @@ impl Default for Watchtower {
 impl Watchtower {
     #[must_use]
     pub fn ranking(&self) -> &str {
-        if self.ranking == "largest" { "largest" } else { "watchdog" }
+        if self.ranking == "largest" {
+            "largest"
+        } else {
+            "watchdog"
+        }
     }
     #[must_use]
     pub fn shortlist_depth(&self) -> u32 {
@@ -527,7 +564,11 @@ impl Watchtower {
     }
     #[must_use]
     pub fn series_cap_keep(&self) -> &str {
-        if self.series_cap_keep == "oldest" { "oldest" } else { "newest" }
+        if self.series_cap_keep == "oldest" {
+            "oldest"
+        } else {
+            "newest"
+        }
     }
     #[must_use]
     pub fn season_bundle_fallback_recent_count(&self) -> u32 {
@@ -578,6 +619,8 @@ pub struct Settings {
     pub preflight: Preflight,
     /// v1 `play.*` — play/failover path.
     pub play: Play,
+    /// v1 `grab.stall-failover-*` — stalled-candidate failover during play.
+    pub grab: Grab,
     /// v1 `warden.*` — dead-release list.
     pub warden: Warden,
     /// v1 `watchtower.*` — automatic grabs.
@@ -2219,11 +2262,23 @@ impl ConfigStore {
         let mut env: Vec<Override> = vars
             .into_iter()
             .filter_map(|(key, raw)| {
-                let path: Vec<String> = key
+                let raw_path: Vec<String> = key
                     .strip_prefix(ENV_PREFIX)?
                     .split("__")
                     .map(str::to_ascii_lowercase)
                     .collect();
+                // Sections serialized camelCase (play.*, preflight.*, …) are addressed by
+                // snake_case env segments: retry with each segment in camelCase.
+                let path = if lookup(&defaults, &raw_path).is_some() {
+                    raw_path
+                } else {
+                    let camel: Vec<String> = raw_path.iter().map(|s| snake_to_camel(s)).collect();
+                    if lookup(&defaults, &camel).is_some() {
+                        camel
+                    } else {
+                        raw_path
+                    }
+                };
                 let Some(default) = lookup(&defaults, &path) else {
                     tracing::warn!(key, "ignoring unknown config environment variable");
                     return None;
@@ -2511,6 +2566,23 @@ fn reject_readarr(tree: &Value) -> Result<(), Error> {
             arr["name"].as_str().unwrap_or_default()
         ),
     ))
+}
+
+/// `watchdog_enabled` → `watchdogEnabled`, for env overrides of camelCase sections.
+fn snake_to_camel(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut upper = false;
+    for c in s.chars() {
+        if c == '_' {
+            upper = true;
+        } else if upper {
+            out.extend(c.to_uppercase());
+            upper = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 fn lookup<'a>(tree: &'a Value, path: &[String]) -> Option<&'a Value> {

@@ -661,6 +661,13 @@ pub async fn serve(
     }
     let search =
         crate::search::build_with_service(Arc::clone(&config), Arc::clone(&auth), search_service);
+    let play = crate::play::build(
+        Arc::clone(&config),
+        Arc::clone(&search),
+        Arc::clone(&queue),
+        db.clone(),
+        Arc::clone(&preflight),
+    );
     let prowlarr_sync =
         crate::prowlarr_sync::build(Arc::clone(&config), Arc::clone(&search), Arc::clone(&auth));
     let prowlarr_sync_task = tokio::spawn({
@@ -812,6 +819,7 @@ pub async fn serve(
     let adoption = Arc::new(crate::upgrade::WebDavAdoption::load(Arc::clone(&admin)).await);
     let app = sab::router(Arc::new(sab))
         .merge(crate::search::router(Arc::clone(&search)))
+        .merge(crate::play::router(Arc::clone(&play)))
         .merge(crate::prowlarr_sync::router(prowlarr_sync))
         .merge(crate::warden::router(warden))
         .merge(hooks)
