@@ -1,0 +1,26 @@
+[package]
+name = "infinidysk-indexer"
+description = "Newznab/Prowlarr indexer HTTP client (ported from the C# v1 fork's backend/Clients/Indexers)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+bytes.workspace = true
+infinidysk-proxy = { path = "../proxy" }
+infinidysk-search = { path = "../search" }
+jiff.workspace = true
+quick-xml.workspace = true
+reqwest.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["macros", "time"] }
+tokio-util.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+
+[lints]
+workspace = true

@@ -1616,6 +1616,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "infinidysk-indexer"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "infinidysk-proxy",
+ "infinidysk-search",
+ "jiff 1.0.2",
+ "quick-xml",
+ "reqwest",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "infinidysk-mount"
 version = "0.0.0"
 dependencies = [
