@@ -132,6 +132,7 @@ public class NewznabClient
     }
 
     private static async Task<XDocument> ParseXmlAsync(
+        HttpResponseMessage response,
         byte[] body,
         long maxResponseBytes,
         CancellationToken ct)
@@ -159,8 +160,23 @@ public class NewznabClient
         }
         catch (XmlException e)
         {
-            throw new RemoteResponseFormatException("Indexer returned invalid XML.", e);
+            throw new RemoteResponseFormatException(
+                $"Indexer returned invalid XML ({DescribeResponse(response, body, e)}).", e);
         }
+    }
+
+    // Response metadata only: never the request URL, API key, or body content.
+    private static string DescribeResponse(HttpResponseMessage response, byte[] body, XmlException e) =>
+        $"HTTP {(int)response.StatusCode}, content-type {SafeMediaType(response)}, {body.Length} bytes, " +
+        $"XML error at line {e.LineNumber}, position {e.LinePosition}";
+
+    private static string SafeMediaType(HttpResponseMessage response)
+    {
+        var mediaType = response.Content.Headers.ContentType?.MediaType?.Trim();
+        if (string.IsNullOrEmpty(mediaType)) return "none";
+        return mediaType.Length <= 100 && mediaType.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '.' or '+')
+            ? mediaType
+            : "unknown";
     }
 
     private static bool HasCapsElement(XDocument doc)
@@ -183,7 +199,7 @@ public class NewznabClient
             using var resp = await GetAsync(url, token).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode) return false;
             var body = await ReadResponseBodyAsync(resp, token).ConfigureAwait(false);
-            var doc = await ParseXmlAsync(body, _maxResponseBytes, token).ConfigureAwait(false);
+            var doc = await ParseXmlAsync(resp, body, _maxResponseBytes, token).ConfigureAwait(false);
             return HasCapsElement(doc);
         }, ct);
     }
@@ -213,7 +229,7 @@ public class NewznabClient
             using var resp = await GetAsync(url, token).ConfigureAwait(false);
             resp.EnsureSuccessStatusCode();
             var body = await ReadResponseBodyAsync(resp, token).ConfigureAwait(false);
-            var doc = await ParseXmlAsync(body, _maxResponseBytes, token).ConfigureAwait(false);
+            var doc = await ParseXmlAsync(resp, body, _maxResponseBytes, token).ConfigureAwait(false);
             if (doc.Root?.Name.LocalName == "error")
             {
                 var code = doc.Root.Attribute("code")?.Value;

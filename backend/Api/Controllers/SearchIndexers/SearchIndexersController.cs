@@ -85,6 +85,7 @@ public class SearchIndexersController(
             {
                 if (e is RemoteResponseException)
                 {
+                    Log.Warning("Indexer {Indexer} search failed: {Message}", x.Name, e.Message);
                     return (Status: new SearchIndexersResponse.IndexerStatus
                     {
                         Name = x.Name,

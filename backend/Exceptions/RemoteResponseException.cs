@@ -3,7 +3,9 @@ namespace NzbWebDAV.Exceptions;
 /// <summary>
 /// Expected failure while reading an untrusted remote metadata response
 /// (Newznab XML or Watchtower list source). Messages are controlled and must not
-/// include request URLs, API keys, or body excerpts.
+/// include request URLs, API keys, or body excerpts. Safe response metadata
+/// (HTTP status, sanitized content-type media type, byte count, XML line/position)
+/// may be appended so failures stay diagnosable from logs and the UI.
 /// </summary>
 public abstract class RemoteResponseException(string message, Exception? innerException)
     : Exception(message, innerException);

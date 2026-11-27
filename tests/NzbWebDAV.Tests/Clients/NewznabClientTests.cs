@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using NzbWebDAV.Clients.Indexers;
 using NzbWebDAV.Exceptions;
@@ -239,10 +240,54 @@ public class NewznabClientTests
         var ex = await Assert.ThrowsAsync<RemoteResponseFormatException>(
             () => client.QueryAsync(SearchParams()));
 
-        Assert.Equal("Indexer returned invalid XML.", ex.Message);
+        Assert.StartsWith("Indexer returned invalid XML (HTTP 200, content-type none, ", ex.Message);
+        Assert.Contains("XML error at line ", ex.Message);
         Assert.DoesNotContain("<item>", ex.Message);
         Assert.DoesNotContain(ApiKey, ex.Message);
         Assert.DoesNotContain(BodyMarker, ex.Message);
+    }
+
+    [Fact]
+    public async Task QueryAsync_HtmlResponse_ReportsContentTypeWithoutLeakingBody()
+    {
+        var html = Encoding.UTF8.GetBytes($"<!DOCTYPE html><html><body>{BodyMarker}</body></html>");
+        using var handler = new ScriptedHandler((_, _) => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(html)
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue("text/html") },
+            },
+        });
+        using var http = new HttpClient(handler);
+        var client = Create(http, 4096);
+
+        var ex = await Assert.ThrowsAsync<RemoteResponseFormatException>(
+            () => client.QueryAsync(SearchParams()));
+
+        Assert.StartsWith("Indexer returned invalid XML (HTTP 200, content-type text/html, ", ex.Message);
+        Assert.DoesNotContain(BodyMarker, ex.Message);
+        Assert.DoesNotContain(ApiKey, ex.Message);
+    }
+
+    [Fact]
+    public async Task QueryAsync_ContentTypeReflectingKey_IsSanitizedToUnknown()
+    {
+        var xml = Encoding.UTF8.GetBytes("not xml at all");
+        using var handler = new ScriptedHandler((_, _) => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(xml)
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue($"text/{ApiKey}") },
+            },
+        });
+        using var http = new HttpClient(handler);
+        var client = Create(http, 4096);
+
+        var ex = await Assert.ThrowsAsync<RemoteResponseFormatException>(
+            () => client.QueryAsync(SearchParams()));
+
+        Assert.Contains("content-type unknown", ex.Message);
+        Assert.DoesNotContain(ApiKey, ex.Message);
     }
 
     [Fact]
@@ -270,7 +315,7 @@ public class NewznabClientTests
         var client = Create(http, 4096);
 
         var ex = await Assert.ThrowsAsync<RemoteResponseFormatException>(() => client.QueryAsync(SearchParams()));
-        Assert.Equal("Indexer returned invalid XML.", ex.Message);
+        Assert.StartsWith("Indexer returned invalid XML (HTTP 200, content-type none, ", ex.Message);
         Assert.DoesNotContain("127.0.0.1", ex.Message);
     }
 
