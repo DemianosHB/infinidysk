@@ -19,7 +19,9 @@ use base64::engine::general_purpose::STANDARD;
 use infinidysk_core::ItemId;
 use infinidysk_db::Db;
 use infinidysk_import::{ArrKind, Config, ProviderKind, Source};
+use infinidysk_indexer::models::IndexerConfig;
 use infinidysk_nntp::{Bandwidth, Client, catalog};
+use infinidysk_search::profile::ProfileConfig;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use tokio::net::TcpListener;
@@ -30,8 +32,8 @@ use uuid::Uuid;
 
 use crate::admin::{Admin, Fail};
 use crate::config::{
-    ArrInstance, ArrProfile, ConfigStore, ImportStrategy, Oidc, Provider, Quota, QuotaPeriod,
-    Secret, Settings, UnownedAction,
+    ArrInstance, ArrProfile, ConfigStore, ImportStrategy, Oidc, PROWLARR_SYNC_INTERVAL_MINUTES,
+    Provider, ProwlarrSyncStatus, Quota, QuotaPeriod, Secret, Settings, UnownedAction,
 };
 use crate::quota::Quotas;
 
@@ -197,6 +199,70 @@ const MAPPED: &[&str] = &[
     "media.library-dir",
     "maintenance.remove-orphaned-schedule-enabled",
     "maintenance.remove-orphaned-schedule-time",
+    // v1-fork keys (Phase 2-4 features).
+    "api.user-agent",
+    "api.search-user-agent",
+    "search.exclude-patterns",
+    "play.exclude-patterns",
+    "indexers.instances",
+    "profiles.instances",
+    "prowlarr.url",
+    "prowlarr.api-key",
+    "prowlarr.sync-enabled",
+    "prowlarr.sync-interval-minutes",
+    "prowlarr.sync-status",
+    "warden.quorum",
+    "warden.hide-dead",
+    "warden.backbone-scope",
+    "warden.max-source-entries",
+    "play.verify-mode",
+    "play.verify-sample-count",
+    "play.total-budget-seconds",
+    "play.hedge-delay-seconds",
+    "play.max-candidates",
+    "play.max-attempts",
+    "play.prefer-subtitles",
+    "play.watchdog-enabled",
+    "play.stall-negative-marking-enabled",
+    "play.stall-negative-marking-minutes",
+    "play.candidate-negative-cache-minutes",
+    "play.resolution-cache-ttl-hours",
+    "grab.stall-failover-enabled",
+    "grab.stall-failover-window-seconds",
+    "grab.stall-failover-ceiling-seconds",
+    "preflight.mode",
+    "preflight.max-attempts",
+    "preflight.ttl-seconds",
+    "preflight.indexer-max-wait-seconds",
+    "watchtower.enabled",
+    "watchtower.profile-token",
+    "watchtower.ranking",
+    "watchtower.size-floor-bytes",
+    "watchtower.size-ceiling-bytes",
+    "watchtower.min-grabs",
+    "watchtower.shortlist-depth",
+    "watchtower.grab-cap-per-resolve",
+    "watchtower.verify-sample-count",
+    "watchtower.verify-timeout-seconds",
+    "watchtower.active-set-cap",
+    "watchtower.resolve-concurrency",
+    "watchtower.daily-resolve-budget",
+    "watchtower.sync-interval-seconds",
+    "watchtower.list-source-max-response-bytes",
+    "watchtower.keepfresh-base-seconds",
+    "watchtower.keepfresh-max-seconds",
+    "watchtower.series-recent-count",
+    "watchtower.series-max-episodes",
+    "watchtower.series-cap-keep",
+    "watchtower.season-bundles",
+    "watchtower.season-bundle-fallback",
+    "watchtower.season-bundle-fallback-scope",
+    "watchtower.season-bundle-fallback-recent-count",
+    "watchtower.season-bundle-fallback-max-episodes",
+    "watchtower.auto-throughput",
+    "watchtower.verbose-logging",
+    "watchtower.series-scope",
+    "watchtower.unavailable-retry-seconds",
 ];
 /// C#'s built-in blocklist, used while its setting was empty.
 const CSHARP_BLOCKLIST: [&str; 5] = ["*.nfo", "*.par2", "*.sfv", "*unpack.mkv", "*.unpack.mp4"];
@@ -337,6 +403,7 @@ pub fn settings(cs: &Config, default_cache_dir: &str) -> anyhow::Result<Upgrade>
             end: hhmm((start + 180) % (24 * 60)),
         };
     }
+    fork_settings(cs, &mut s, &mut notes);
     let mut quota_used = Vec::new();
     match cs.providers() {
         Ok(list) => {
@@ -462,6 +529,291 @@ fn split(list: &str) -> impl Iterator<Item = &str> {
 
 fn flag(cs: &Config, key: &str) -> Option<bool> {
     cs.get(key).map(|v| v.eq_ignore_ascii_case("true"))
+}
+
+/// Copies a non-blank C# string setting.
+fn set_str(cs: &Config, key: &str, set: impl FnOnce(String)) {
+    if let Some(v) = cs.get(key).filter(|v| !v.trim().is_empty()) {
+        set(v.to_owned());
+    }
+}
+
+/// Copies a C# numeric setting, noting values that do not parse.
+fn set_num<T: std::str::FromStr>(
+    cs: &Config,
+    key: &str,
+    notes: &mut Vec<String>,
+    set: impl FnOnce(T),
+) {
+    let Some(raw) = cs.get(key).map(str::trim).filter(|v| !v.is_empty()) else {
+        return;
+    };
+    match raw.parse() {
+        Ok(v) => set(v),
+        Err(_) => notes.push(format!("{key} not carried over: {raw:?} is not a number")),
+    }
+}
+
+/// Copies a C# boolean setting.
+fn set_flag(cs: &Config, key: &str, set: impl FnOnce(bool)) {
+    if let Some(on) = flag(cs, key) {
+        set(on);
+    }
+}
+
+/// Reads a C# JSON config value (`PascalCase` keys, e.g. `indexers.instances`) into our
+/// camelCase type; unreadable values are noted and left at their default.
+fn fork_json<T: serde::de::DeserializeOwned>(
+    cs: &Config,
+    key: &str,
+    what: &str,
+    notes: &mut Vec<String>,
+) -> Option<T> {
+    let raw = cs.get(key).map(str::trim).filter(|v| !v.is_empty())?;
+    let value: serde_json::Value = match serde_json::from_str(raw) {
+        Ok(value) => value,
+        Err(error) => {
+            notes.push(format!(
+                "{what} not carried over: {key} is not valid JSON ({error})"
+            ));
+            return None;
+        }
+    };
+    match serde_json::from_value(unpascal(value)) {
+        Ok(value) => Some(value),
+        Err(error) => {
+            notes.push(format!(
+                "{what} not carried over: {key} does not match the 2.x shape ({error})"
+            ));
+            None
+        }
+    }
+}
+
+/// C# serializes its config objects with `PascalCase` keys; ours are camelCase.
+fn unpascal(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => serde_json::Value::Object(
+            map.into_iter()
+                .map(|(key, value)| {
+                    let mut chars = key.chars();
+                    let key = match chars.next() {
+                        Some(first) if first.is_ascii_uppercase() => {
+                            first.to_ascii_lowercase().to_string() + chars.as_str()
+                        }
+                        _ => key,
+                    };
+                    (key, unpascal(value))
+                })
+                .collect(),
+        ),
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(unpascal).collect())
+        }
+        other => other,
+    }
+}
+
+/// The v1-fork-only sections: the C# `search.*`, `api.*-user-agent`, `indexers.instances`,
+/// `profiles.instances`, `prowlarr.*`, `preflight.*`, `play.*`, `grab.*`, `warden.*` and
+/// `watchtower.*` keys onto their 2.x fields.
+fn fork_settings(cs: &Config, s: &mut Settings, notes: &mut Vec<String>) {
+    set_str(cs, "search.exclude-patterns", |v| {
+        s.search.exclude_patterns = v;
+    });
+    set_str(cs, "api.user-agent", |v| s.search.user_agent = v);
+    set_str(cs, "api.search-user-agent", |v| {
+        s.search.search_user_agent = v;
+    });
+    if let Some(v) = cs
+        .get("play.exclude-patterns")
+        .filter(|v| !v.trim().is_empty())
+    {
+        v.clone_into(&mut s.play.exclude_patterns);
+        // v1 compiled the play patterns when the search ones were blank; 2.x compiles
+        // only search.exclude_patterns, so keep the effective list.
+        if s.search.exclude_patterns.trim().is_empty() {
+            v.clone_into(&mut s.search.exclude_patterns);
+            notes.push(
+                "play.exclude-patterns also applied to search: v1 used it when \
+                 search.exclude-patterns was blank"
+                    .to_owned(),
+            );
+        }
+    }
+    if let Some(cfg) = fork_json::<IndexerConfig>(cs, "indexers.instances", "indexers", notes) {
+        s.indexers = cfg;
+    }
+    if let Some(cfg) = fork_json::<ProfileConfig>(cs, "profiles.instances", "profiles", notes) {
+        s.profiles = cfg.normalized();
+    }
+    set_str(cs, "prowlarr.url", |v| s.prowlarr.url = v);
+    if let Some(key) = cs.get("prowlarr.api-key").filter(|v| !v.trim().is_empty()) {
+        s.prowlarr.api_key = Secret(key.to_owned());
+    }
+    set_flag(cs, "prowlarr.sync-enabled", |v| s.prowlarr.sync_enabled = v);
+    set_num(cs, "prowlarr.sync-interval-minutes", notes, |v: u32| {
+        s.prowlarr.sync_interval_minutes = v.clamp(
+            *PROWLARR_SYNC_INTERVAL_MINUTES.start(),
+            *PROWLARR_SYNC_INTERVAL_MINUTES.end(),
+        );
+    });
+    if let Some(status) =
+        fork_json::<ProwlarrSyncStatus>(cs, "prowlarr.sync-status", "Prowlarr sync status", notes)
+    {
+        s.prowlarr.sync_status = Some(status);
+    }
+    set_str(cs, "preflight.mode", |v| s.preflight.mode = v);
+    set_num(cs, "preflight.max-attempts", notes, |v| {
+        s.preflight.max_attempts = v;
+    });
+    set_num(cs, "preflight.ttl-seconds", notes, |v| {
+        s.preflight.ttl_seconds = v;
+    });
+    set_num(cs, "preflight.indexer-max-wait-seconds", notes, |v| {
+        s.preflight.indexer_max_wait_seconds = v;
+    });
+    set_str(cs, "play.verify-mode", |v| s.play.verify_mode = v);
+    set_num(cs, "play.verify-sample-count", notes, |v| {
+        s.play.verify_sample_count = v;
+    });
+    set_num(cs, "play.total-budget-seconds", notes, |v| {
+        s.play.total_budget_seconds = v;
+    });
+    set_num(cs, "play.hedge-delay-seconds", notes, |v| {
+        s.play.hedge_delay_seconds = v;
+    });
+    set_num(cs, "play.max-candidates", notes, |v| {
+        s.play.max_candidates = v;
+    });
+    set_num(cs, "play.max-attempts", notes, |v| s.play.max_attempts = v);
+    set_flag(cs, "play.prefer-subtitles", |v| s.play.prefer_subtitles = v);
+    set_flag(cs, "play.watchdog-enabled", |v| s.play.watchdog_enabled = v);
+    set_flag(cs, "play.stall-negative-marking-enabled", |v| {
+        s.play.stall_negative_marking_enabled = v;
+    });
+    set_num(cs, "play.stall-negative-marking-minutes", notes, |v| {
+        s.play.stall_negative_marking_minutes = v;
+    });
+    set_num(cs, "play.candidate-negative-cache-minutes", notes, |v| {
+        s.play.candidate_negative_cache_minutes = v;
+    });
+    set_num(cs, "play.resolution-cache-ttl-hours", notes, |v| {
+        s.play.resolution_cache_ttl_hours = v;
+    });
+    set_flag(cs, "grab.stall-failover-enabled", |v| {
+        s.grab.stall_failover_enabled = v;
+    });
+    set_num(cs, "grab.stall-failover-window-seconds", notes, |v| {
+        s.grab.stall_failover_window_seconds = v;
+    });
+    set_num(cs, "grab.stall-failover-ceiling-seconds", notes, |v| {
+        s.grab.stall_failover_ceiling_seconds = v;
+    });
+    set_num(cs, "warden.quorum", notes, |v| s.warden.quorum = v);
+    set_flag(cs, "warden.hide-dead", |v| s.warden.hide_dead = v);
+    set_flag(cs, "warden.backbone-scope", |v| s.warden.backbone_scope = v);
+    set_num(cs, "warden.max-source-entries", notes, |v| {
+        s.warden.max_source_entries = v;
+    });
+    set_flag(cs, "watchtower.enabled", |v| s.watchtower.enabled = v);
+    set_str(cs, "watchtower.profile-token", |v| {
+        s.watchtower.profile_token = v;
+    });
+    set_str(cs, "watchtower.ranking", |v| s.watchtower.ranking = v);
+    set_num(cs, "watchtower.size-floor-bytes", notes, |v| {
+        s.watchtower.size_floor_bytes = v;
+    });
+    set_num(cs, "watchtower.size-ceiling-bytes", notes, |v| {
+        s.watchtower.size_ceiling_bytes = v;
+    });
+    set_num(cs, "watchtower.min-grabs", notes, |v| {
+        s.watchtower.min_grabs = v;
+    });
+    set_num(cs, "watchtower.shortlist-depth", notes, |v| {
+        s.watchtower.shortlist_depth = v;
+    });
+    set_num(cs, "watchtower.grab-cap-per-resolve", notes, |v| {
+        s.watchtower.grab_cap_per_resolve = v;
+    });
+    set_num(cs, "watchtower.verify-sample-count", notes, |v| {
+        s.watchtower.verify_sample_count = v;
+    });
+    set_num(cs, "watchtower.verify-timeout-seconds", notes, |v| {
+        s.watchtower.verify_timeout_seconds = v;
+    });
+    set_num(cs, "watchtower.active-set-cap", notes, |v| {
+        s.watchtower.active_set_cap = v;
+    });
+    set_num(cs, "watchtower.resolve-concurrency", notes, |v| {
+        s.watchtower.resolve_concurrency = v;
+    });
+    set_num(cs, "watchtower.daily-resolve-budget", notes, |v| {
+        s.watchtower.daily_resolve_budget = v;
+    });
+    set_num(cs, "watchtower.sync-interval-seconds", notes, |v| {
+        s.watchtower.sync_interval_seconds = v;
+    });
+    set_num(
+        cs,
+        "watchtower.list-source-max-response-bytes",
+        notes,
+        |v| {
+            s.watchtower.list_source_max_response_bytes = v;
+        },
+    );
+    set_num(cs, "watchtower.keepfresh-base-seconds", notes, |v| {
+        s.watchtower.keepfresh_base_seconds = v;
+    });
+    set_num(cs, "watchtower.keepfresh-max-seconds", notes, |v| {
+        s.watchtower.keepfresh_max_seconds = v;
+    });
+    set_num(cs, "watchtower.series-recent-count", notes, |v| {
+        s.watchtower.series_recent_count = v;
+    });
+    set_num(cs, "watchtower.series-max-episodes", notes, |v| {
+        s.watchtower.series_max_episodes = v;
+    });
+    set_str(cs, "watchtower.series-cap-keep", |v| {
+        s.watchtower.series_cap_keep = v;
+    });
+    set_flag(cs, "watchtower.season-bundles", |v| {
+        s.watchtower.season_bundles = v;
+    });
+    set_flag(cs, "watchtower.season-bundle-fallback", |v| {
+        s.watchtower.season_bundle_fallback = v;
+    });
+    set_str(cs, "watchtower.season-bundle-fallback-scope", |v| {
+        s.watchtower.season_bundle_fallback_scope = v;
+    });
+    set_num(
+        cs,
+        "watchtower.season-bundle-fallback-recent-count",
+        notes,
+        |v| {
+            s.watchtower.season_bundle_fallback_recent_count = v;
+        },
+    );
+    set_num(
+        cs,
+        "watchtower.season-bundle-fallback-max-episodes",
+        notes,
+        |v| {
+            s.watchtower.season_bundle_fallback_max_episodes = v;
+        },
+    );
+    set_flag(cs, "watchtower.auto-throughput", |v| {
+        s.watchtower.auto_throughput = v;
+    });
+    set_flag(cs, "watchtower.verbose-logging", |v| {
+        s.watchtower.verbose_logging = v;
+    });
+    set_str(cs, "watchtower.series-scope", |v| {
+        s.watchtower.series_scope = v;
+    });
+    set_num(cs, "watchtower.unavailable-retry-seconds", notes, |v| {
+        s.watchtower.unavailable_retry_seconds = v;
+    });
 }
 
 /// The slider stop at or below C#'s Mbit/s limit, so the headroom kept under a line's
@@ -1872,6 +2224,198 @@ mod tests {
             .iter()
             .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
             .collect()
+    }
+
+    /// A C# `/config` holding the given `ConfigItems` rows in its `db.sqlite`.
+    async fn csharp_config(dir: &std::path::Path, rows: &[(&str, &str)]) -> Config {
+        use sqlx::{ConnectOptions as _, Connection as _};
+        let path = dir.join("db.sqlite");
+        let mut db = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true)
+            .connect()
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE ConfigItems (ConfigName text PRIMARY KEY, ConfigValue text NOT NULL)",
+        )
+        .execute(&mut db)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE Accounts (Type integer NOT NULL, Username text NOT NULL, \
+             PasswordHash text NOT NULL, RandomSalt text NOT NULL, PRIMARY KEY (Type, Username))",
+        )
+        .execute(&mut db)
+        .await
+        .unwrap();
+        for (key, value) in rows {
+            sqlx::query("INSERT INTO ConfigItems (ConfigName, ConfigValue) VALUES (?, ?)")
+                .bind(key)
+                .bind(value)
+                .execute(&mut db)
+                .await
+                .unwrap();
+        }
+        db.close().await.unwrap();
+        Config::read(dir, Vec::<(String, String)>::new())
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn v1_fork_keys_carry_over_to_their_2x_settings() {
+        let dir = v1_dir();
+        let cs = csharp_config(
+            &dir,
+            &[
+                ("webdav.user", "admin"),
+                ("search.exclude-patterns", "*.part\nx265"),
+                ("api.user-agent", "MyAgent/1.0"),
+                ("api.search-user-agent", "SearchAgent/2.0"),
+                (
+                    "indexers.instances",
+                    r#"{"ProxyUrl":"http://proxy:8080","TimeoutSeconds":45,"SearchResultLimit":50,"MaxResponseBytes":8388608,"Indexers":[{"Name":"nzb.su","Url":"https://nzb.su/api","ApiKey":"key","Enabled":true,"SkipTlsVerification":true,"MaxRequestsPerMinute":30,"TimeoutSeconds":10,"ProwlarrIndexerId":7,"Filter":{"Enabled":true,"SkipPassworded":true,"MinGrabs":5}}]}"#,
+                ),
+                (
+                    "profiles.instances",
+                    r#"{"Profiles":[{"Token":"tok","Name":"Default","IndexerNames":["nzb.su"],"QualitySort":"Resolution","QueryFallbackMinResults":9}]}"#,
+                ),
+                ("prowlarr.url", "http://prowlarr:9696"),
+                ("prowlarr.api-key", "prowlarrkey"),
+                ("prowlarr.sync-enabled", "true"),
+                ("prowlarr.sync-interval-minutes", "30"),
+                (
+                    "prowlarr.sync-status",
+                    r#"{"LastAttemptAt":100,"LastSuccessAt":90,"LastError":null,"RemoteIndexerCount":3,"Added":1,"Updated":1,"Removed":0,"Skipped":1}"#,
+                ),
+                ("preflight.mode", "full"),
+                ("preflight.max-attempts", "25"),
+                ("preflight.ttl-seconds", "abc"),
+                ("play.verify-mode", "body"),
+                ("play.max-attempts", "42"),
+                ("grab.stall-failover-window-seconds", "9"),
+                ("warden.quorum", "3"),
+                ("warden.hide-dead", "false"),
+                ("watchtower.enabled", "true"),
+                ("watchtower.profile-token", "tok"),
+                ("watchtower.size-floor-bytes", "1000"),
+                ("watchtower.season-bundles", "false"),
+                ("watchtower.series-scope", "all-aired"),
+                ("watchtower.list-source-max-response-bytes", "not-a-number"),
+            ],
+        )
+        .await;
+        let upgrade = settings(&cs, crate::config::DEFAULT_CACHE_DIR).unwrap();
+        let s = &upgrade.settings;
+        assert_eq!(s.search.exclude_patterns, "*.part\nx265");
+        assert_eq!(s.search.user_agent, "MyAgent/1.0");
+        assert_eq!(s.search.search_user_agent, "SearchAgent/2.0");
+        assert_eq!(s.indexers.proxy_url.as_deref(), Some("http://proxy:8080"));
+        assert_eq!(s.indexers.timeout_seconds, Some(45));
+        assert_eq!(s.indexers.search_result_limit, Some(50));
+        assert_eq!(s.indexers.max_response_bytes, Some(8_388_608));
+        assert_eq!(s.indexers.indexers.len(), 1);
+        let indexer = &s.indexers.indexers[0];
+        assert_eq!(indexer.name, "nzb.su");
+        assert_eq!(indexer.url, "https://nzb.su/api");
+        assert_eq!(indexer.api_key, "key");
+        assert!(indexer.enabled && indexer.skip_tls_verification);
+        assert_eq!(indexer.max_requests_per_minute, 30);
+        assert_eq!(indexer.timeout_seconds, Some(10));
+        assert_eq!(indexer.prowlarr_indexer_id, Some(7));
+        let filter = indexer.filter.as_ref().unwrap();
+        assert!(filter.enabled && filter.skip_passworded);
+        assert_eq!(filter.min_grabs, 5);
+        assert_eq!(s.profiles.profiles.len(), 1);
+        let profile = &s.profiles.profiles[0];
+        assert_eq!(profile.token, "tok");
+        assert_eq!(profile.indexer_names, ["nzb.su"]);
+        assert_eq!(
+            profile.quality_sort,
+            infinidysk_search::sorter::QualitySortMode::Resolution
+        );
+        // The legacy QueryFallbackMinResults migrated, as v1's Normalized() did.
+        assert_eq!(
+            profile.movie_fallback,
+            infinidysk_search::profile::FallbackMode::Title
+        );
+        assert_eq!(
+            profile.tv_fallback,
+            infinidysk_search::profile::FallbackMode::Broad
+        );
+        assert_eq!(profile.movie_fallback_min_results, 9);
+        assert_eq!(profile.query_fallback_min_results, None);
+        assert_eq!(s.prowlarr.url, "http://prowlarr:9696");
+        assert_eq!(s.prowlarr.api_key.0, "prowlarrkey");
+        assert!(s.prowlarr.sync_enabled);
+        assert_eq!(s.prowlarr.sync_interval_minutes, 30);
+        let status = s.prowlarr.sync_status.as_ref().unwrap();
+        assert_eq!(status.last_attempt_at, 100);
+        assert_eq!(status.last_success_at, Some(90));
+        assert_eq!(status.remote_indexer_count, 3);
+        assert_eq!(s.preflight.mode, "full");
+        assert_eq!(s.preflight.max_attempts, 25);
+        assert_eq!(s.play.verify_mode, "body");
+        assert_eq!(s.play.max_attempts, 42);
+        assert_eq!(s.grab.stall_failover_window_seconds, 9);
+        assert_eq!(s.warden.quorum, 3);
+        assert!(!s.warden.hide_dead);
+        assert!(s.watchtower.enabled);
+        assert_eq!(s.watchtower.profile_token, "tok");
+        assert_eq!(s.watchtower.size_floor_bytes, 1_000);
+        assert!(!s.watchtower.season_bundles);
+        assert_eq!(s.watchtower.series_scope, "all-aired");
+        // Values that do not parse stay at their default and are noted.
+        assert_eq!(
+            s.watchtower.list_source_max_response_bytes,
+            16 * 1024 * 1024
+        );
+        assert_eq!(s.preflight.ttl_seconds, 120);
+        assert!(
+            upgrade
+                .notes
+                .iter()
+                .any(|n| n.contains("watchtower.list-source-max-response-bytes"))
+        );
+        assert!(
+            upgrade
+                .notes
+                .iter()
+                .any(|n| n.contains("preflight.ttl-seconds"))
+        );
+        // Every mapped fork key is carried over, so none is listed as dropped.
+        let dropped = upgrade
+            .notes
+            .iter()
+            .find(|n| n.starts_with("not carried over (fixed by policy"))
+            .map_or_else(String::new, Clone::clone);
+        for key in [
+            "watchtower.enabled",
+            "indexers.instances",
+            "profiles.instances",
+            "prowlarr.sync-status",
+            "search.exclude-patterns",
+        ] {
+            assert!(!dropped.contains(key), "{key} in {dropped}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn play_exclude_patterns_apply_to_search_when_the_search_ones_are_blank() {
+        let dir = v1_dir();
+        let cs = csharp_config(&dir, &[("play.exclude-patterns", "*.sample")]).await;
+        let upgrade = settings(&cs, crate::config::DEFAULT_CACHE_DIR).unwrap();
+        assert_eq!(upgrade.settings.play.exclude_patterns, "*.sample");
+        assert_eq!(upgrade.settings.search.exclude_patterns, "*.sample");
+        assert!(
+            upgrade
+                .notes
+                .iter()
+                .any(|n| n.contains("play.exclude-patterns also applied to search"))
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]

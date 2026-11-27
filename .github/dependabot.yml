@@ -1,23 +1,6 @@
 version: 2
 
 updates:
-  - package-ecosystem: nuget
-    directory: /
-    schedule:
-      interval: monthly
-    cooldown:
-      default-days: 7
-    commit-message:
-      prefix: "fix(deps)"
-    groups:
-      nuget-minor-and-patch:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-    open-pull-requests-limit: 10
-
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -32,37 +15,8 @@ updates:
           - "*"
     open-pull-requests-limit: 10
 
-  - package-ecosystem: npm
-    directory: /frontend
-    schedule:
-      interval: monthly
-    cooldown:
-      default-days: 7
-    commit-message:
-      prefix: "fix(deps)"
-    groups:
-      react-router:
-        patterns:
-          - "react-router"
-          - "@react-router/*"
-        update-types:
-          - minor
-          - patch
-      npm-minor-and-patch:
-        patterns:
-          - "*"
-        exclude-patterns:
-          - "react-router"
-          - "@react-router/*"
-        update-types:
-          - minor
-          - patch
-    open-pull-requests-limit: 10
-
-  # The Rust port lives on the `rust` branch under /rust until it merges back.
   - package-ecosystem: cargo
     directory: /rust
-    target-branch: rust
     schedule:
       interval: monthly
     cooldown:
