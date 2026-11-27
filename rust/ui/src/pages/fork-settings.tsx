@@ -1,17 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Copy, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { getProwlarrSync, syncProwlarrNow, type ForkDoc, type ForkIndexer, type ForkSettings } from "../api/fork";
 import { ago } from "../format";
 import { copyText, useSaveSettings, useSettings } from "../settings";
-import { Failure, Loading, SettingsSection } from "../ui";
+import { EditorSheet, Failure, Field, FieldGroup, Loading, SettingsSection } from "../ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
+import { TagInput } from "@/components/ui/tag-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type Wt = ForkSettings["watchtower"];
@@ -231,11 +233,159 @@ export function IndexersPanel({ title, description }: { title: string; descripti
 
 type Profile = ForkDoc["profiles"]["profiles"][number];
 
-/** Search profiles (`profiles.*`) with their addon URLs. */
+/** Ported serde enum values from crates/search/src/sorter.rs and crates/search/src/profile.rs. */
+type QualitySortMode = "Off" | "Resolution" | "ResolutionAndSource";
+type FallbackMode = "Off" | "Title" | "Broad";
+
+const QUALITY_SORT_MODES: { value: QualitySortMode; label: string }[] = [
+  { value: "Off", label: "Off — keep grabs, size and posted-date order" },
+  { value: "Resolution", label: "Resolution — prefer 2160p, then 1080p, 720p, SD" },
+  { value: "ResolutionAndSource", label: "Resolution + source — resolution first, then Remux/BluRay/WEB-DL/…" },
+];
+
+const FALLBACK_MODES: { value: FallbackMode; label: string }[] = [
+  { value: "Off", label: "Off — no second query" },
+  { value: "Title", label: "Title — retry with a title-only query" },
+  { value: "Broad", label: "Broad — title + episode, then a whole-show query" },
+];
+
+/** Edits one search profile (profiles.*), saved with the whole settings document. */
+function ProfileSheet({
+  profile,
+  indexers,
+  saving,
+  onSave,
+  onClose,
+}: {
+  profile: Profile;
+  indexers: { name: string; enabled: boolean }[];
+  saving: boolean;
+  onSave: (next: Profile) => void;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = useState<Profile>(profile);
+  useEffect(() => {
+    setDraft(profile);
+  }, [profile]);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(profile);
+  const set = (patch: Partial<Profile>) => setDraft((d) => ({ ...d, ...patch }));
+
+  const toggleIndexer = (name: string, on: boolean) => {
+    const rest = draft.indexerNames.filter((n) => n !== name);
+    set({ indexerNames: on ? [...rest, name] : rest });
+  };
+
+  const fallback = (kind: "movie" | "tv") => {
+    const mode = (kind === "movie" ? draft.movieFallback : draft.tvFallback) as FallbackMode;
+    const threshold = kind === "movie" ? draft.movieFallbackMinResults : draft.tvFallbackMinResults;
+    const label = kind === "movie" ? "Movie" : "TV";
+    return (
+      <Field
+        id={"prof-" + kind + "-fallback"}
+        label={label + " query fallback"}
+        hint={
+          mode === "Off"
+            ? "No second query when the first search comes back short."
+            : "Runs the broader query when the first search returns fewer results than this."
+        }
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={mode} onValueChange={(v) => set(kind === "movie" ? { movieFallback: v } : { tvFallback: v })}>
+            <SelectTrigger id={"prof-" + kind + "-fallback"} className="w-full sm:w-72">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {FALLBACK_MODES.map((m) => (
+                <SelectItem key={m.value} value={m.value}>
+                  {m.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {mode !== "Off" && (
+            <Input
+              inputMode="numeric"
+              className="w-20"
+              value={String(threshold)}
+              aria-label={label + " fallback threshold"}
+              onChange={(e) =>
+                set(
+                  kind === "movie"
+                    ? { movieFallbackMinResults: Math.max(1, Number(e.target.value) || 1) }
+                    : { tvFallbackMinResults: Math.max(1, Number(e.target.value) || 1) },
+                )
+              }
+            />
+          )}
+        </div>
+      </Field>
+    );
+  };
+
+  return (
+    <EditorSheet
+      open
+      title={"Edit " + (profile.name || "profile")}
+      description="Quality sort, audio languages and fallback behaviour apply to every search through this profile."
+      dirty={dirty}
+      saving={saving}
+      submit="Save changes"
+      onSubmit={() => onSave({ ...draft, preferredAudioLanguages: draft.preferredAudioLanguages?.length ? draft.preferredAudioLanguages : null })}
+      onClose={onClose}
+    >
+      <FieldGroup title="Basics">
+        <Field id="prof-edit-name" label="Name">
+          <Input id="prof-edit-name" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
+        </Field>
+        <Field id="prof-edit-indexers" label="Indexers" hint="Leave all unchecked to use every enabled indexer.">
+          {indexers.length === 0 ? (
+            <p className="text-muted-foreground text-sm">No indexers configured yet. Add some under the Indexers settings.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {indexers.map((ix) => (
+                <label key={ix.name} className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={draft.indexerNames.includes(ix.name)} onCheckedChange={(on) => toggleIndexer(ix.name, on === true)} aria-label={"Indexer " + ix.name} />
+                  {ix.name}
+                  {!ix.enabled && <span className="text-muted-foreground text-xs">(disabled)</span>}
+                </label>
+              ))}
+            </div>
+          )}
+        </Field>
+      </FieldGroup>
+      <FieldGroup title="Result ordering">
+        <Field id="prof-edit-sort" label="Quality sort" hint="Opt-in. Resolution always ranks above source.">
+          <Select value={draft.qualitySort} onValueChange={(v) => set({ qualitySort: v })}>
+            <SelectTrigger id="prof-edit-sort">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {QUALITY_SORT_MODES.map((m) => (
+                <SelectItem key={m.value} value={m.value}>
+                  {m.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field id="prof-edit-audio" label="Preferred audio languages" hint="Ordered bias, never a filter. Earlier entries rank first; leave empty to disable.">
+          <TagInput id="prof-edit-audio" value={draft.preferredAudioLanguages ?? []} disabled={false} onChange={(v) => set({ preferredAudioLanguages: v.length ? v : null })} />
+        </Field>
+      </FieldGroup>
+      <FieldGroup title="Query fallback">
+        {fallback("movie")}
+        {fallback("tv")}
+      </FieldGroup>
+    </EditorSheet>
+  );
+}
+
+/** Search profiles (profiles.*) with their addon URLs. */
 export function ProfilesPanel({ title, description }: { title: string; description: string }) {
   const settings = useSettings();
   const save = useSaveSettings();
   const [name, setName] = useState("");
+  const [editing, setEditing] = useState<Profile | null>(null);
 
   if (settings.isPending) return <SettingsSection title={title} description={description}><Loading /></SettingsSection>;
   if (settings.isError) return <SettingsSection title={title} description={description}><Failure error={settings.error as Error} /></SettingsSection>;
@@ -248,7 +398,7 @@ export function ProfilesPanel({ title, description }: { title: string; descripti
 
   const add = () => {
     if (!name.trim()) return;
-    // `randomUUID` needs a secure context; LAN IPs are not one, so build the token by hand.
+    // randomUUID needs a secure context; LAN IPs are not one, so build the token by hand.
     const token = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
     patchList([
       ...profiles,
@@ -279,7 +429,7 @@ export function ProfilesPanel({ title, description }: { title: string; descripti
                 <TableHead className="hidden sm:table-cell">Token</TableHead>
                 <TableHead className="hidden lg:table-cell">Indexers</TableHead>
                 <TableHead className="hidden md:table-cell">Addon URL</TableHead>
-                <TableHead className="w-12"></TableHead>
+                <TableHead className="w-24"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -296,21 +446,31 @@ export function ProfilesPanel({ title, description }: { title: string; descripti
                     <Button
                       variant="ghost"
                       size="sm"
-                      aria-label={`Copy addon URL of ${p.name}`}
-                      onClick={() => void copyText(`${location.origin}/adapters/addon/${p.token}/manifest.json`)}
+                      aria-label={"Copy addon URL of " + p.name}
+                      onClick={() => void copyText(location.origin + "/adapters/addon/" + p.token + "/manifest.json")}
                     >
                       <Copy /> manifest
                     </Button>
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Remove ${p.name}`}
-                      onClick={() => patchList(profiles.filter((_, j) => j !== i))}
-                    >
-                      <Trash2 />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={"Edit " + p.name}
+                        onClick={() => setEditing(p)}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={"Remove " + p.name}
+                        onClick={() => patchList(profiles.filter((_, j) => j !== i))}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -340,9 +500,22 @@ export function ProfilesPanel({ title, description }: { title: string; descripti
           </Button>
         </form>
       </div>
+      {editing && (
+        <ProfileSheet
+          profile={editing}
+          indexers={view.settings.indexers.indexers.map((ix) => ({ name: ix.name, enabled: ix.enabled }))}
+          saving={save.isPending}
+          onSave={(next) => {
+            patchList(profiles.map((x) => (x.token === editing.token ? next : x)));
+            setEditing(null);
+          }}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </SettingsSection>
   );
 }
+
 
 /** Prowlarr pull-sync status + connection settings (`prowlarr.*`). */
 export function ProwlarrPanel({ title, description }: { title: string; description: string }) {
