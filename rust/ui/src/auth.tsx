@@ -20,7 +20,7 @@ export function useAuth() {
 export function Wordmark() {
   return (
     <span translate="no">
-      infini<span className="text-primary">dysk</span>
+      neo<span className="text-primary">dysk</span>
     </span>
   );
 }
