@@ -19,6 +19,8 @@ import { useAuth } from "../auth";
 import { copyText, MASK, notAPassword, type Settings as Doc, useRestart, useSaveSettings, useSettings } from "../settings";
 import { LibraryPanel, PreviewDialog, type PreviewRequest, previewTitle } from "../library";
 import { BackupsPanel } from "../backups";
+import { IndexersPanel, ProfilesPanel, ProwlarrPanel, WatchtowerSettings } from "./fork-settings";
+import { WardenPanel } from "./warden";
 import { MaintenancePanel } from "../maintenance";
 import { DatabasePanel } from "../database";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
@@ -131,6 +133,36 @@ const categories = [
     slug: "download-client",
     title: "Download client",
     description: "Add infinidysk to Sonarr, Radarr and the other Arrs as a SABnzbd client with these details",
+  },
+  {
+    group: "v1 fork",
+    slug: "watchtower",
+    title: "Watchtower",
+    description: "Automatic grabs: list sources, expanders, resolve and keep-fresh (v1-only feature)",
+  },
+  {
+    group: "v1 fork",
+    slug: "indexers",
+    title: "Indexers",
+    description: "Newznab/Prowlarr indexers used by search and profiles (v1-only feature)",
+  },
+  {
+    group: "v1 fork",
+    slug: "profiles",
+    title: "Profiles",
+    description: "Token-addressable search profiles exposed as Stremio/Newznab adapters (v1-only feature)",
+  },
+  {
+    group: "v1 fork",
+    slug: "prowlarr",
+    title: "Prowlarr",
+    description: "Pull-sync of indexers from a Prowlarr server (v1-only feature)",
+  },
+  {
+    group: "v1 fork",
+    slug: "warden",
+    title: "Warden",
+    description: "Dead-release list shared from remote sources; dead releases are hidden from results (v1-only feature)",
   },
   {
     group: "System",
@@ -652,6 +684,11 @@ export function Settings() {
           {category.slug === "providers" && <Providers title={category.title} description={category.description} />}
           {category.slug === "arr" && <ArrInstances title={category.title} description={category.description} />}
           {category.slug === "database" && <DatabasePanel title={category.title} description={category.description} />}
+          {category.slug === "watchtower" && <WatchtowerSettings title={category.title} description={category.description} />}
+          {category.slug === "indexers" && <IndexersPanel title={category.title} description={category.description} />}
+          {category.slug === "profiles" && <ProfilesPanel title={category.title} description={category.description} />}
+          {category.slug === "prowlarr" && <ProwlarrPanel title={category.title} description={category.description} />}
+          {category.slug === "warden" && <WardenPanel title={category.title} description={category.description} />}
           <form id="settings" onSubmit={submit}>
             {category.slug === "download-client" && (
               <Section category={category}>

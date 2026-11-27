@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
-use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Form, Multipart, Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -99,6 +99,7 @@ pub struct Admin {
         quota::post_reset_usage,
         get_queue,
         post_queue,
+        post_queue_from_url,
         get_queue_paused,
         put_queue_paused,
         put_queue_job_paused,
@@ -253,6 +254,7 @@ pub fn router(admin: Arc<Admin>, auth: Arc<Auth>) -> Router {
                 .post(post_queue)
                 .layer(DefaultBodyLimit::max(sab::MAX_NZB)),
         )
+        .route("/api/v1/queue/from-url", post(post_queue_from_url))
         .route(
             "/api/v1/queue/paused",
             get(get_queue_paused).put(put_queue_paused),
@@ -808,6 +810,75 @@ async fn post_queue(
         }
         Err(error) => {
             tracing::warn!(reason = %error, "could not queue an uploaded NZB");
+            Err(Fail::Internal)
+        }
+    }
+}
+
+#[derive(Deserialize, ToSchema)]
+#[allow(dead_code)] // OpenAPI shape only; the handler reads the form fields itself.
+struct FromUrl {
+    /// The NZB URL to fetch and queue.
+    url: String,
+    /// Display name; falls back to the fetched file name, then a timestamp.
+    nzbname: Option<String>,
+    /// One of the configured categories; the manual category when absent.
+    category: Option<String>,
+}
+
+/// Queues an NZB fetched from a URL, like a download client's `addurl` (v1 search page "Mount").
+#[utoipa::path(post, path = "/api/v1/queue/from-url", tag = "queue",
+    request_body(content = FromUrl, content_type = "application/x-www-form-urlencoded"),
+    responses((status = 201, body = Queued), (status = 400, body = ApiError)))]
+async fn post_queue_from_url(
+    State(admin): State<Arc<Admin>>,
+    Form(form): Form<FromUrl>,
+) -> Result<(StatusCode, Json<Queued>), Fail> {
+    let url = form.url.trim();
+    if url.is_empty() || !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(Fail::Bad("A http(s) NZB URL is required".to_owned()));
+    }
+    let sab = admin.config.read().await.settings().sab.clone();
+    let category = match form.category.filter(|c| !c.trim().is_empty()) {
+        None => sab.manual_category,
+        Some(c) if sab.categories().any(|known| known == c) => c,
+        Some(c) => return Err(Fail::Bad(format!("unknown category {c:?}"))),
+    };
+    let fetcher = crate::fetch::Fetcher::new().map_err(|_| Fail::Internal)?;
+    let fetched = fetcher.fetch(url).await;
+    let fallback = format!(
+        "Unnamed NZB {}",
+        SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .and_then(|d| i64::try_from(d.as_millis()).ok())
+            .unwrap_or(0)
+    );
+    let name = form
+        .nzbname
+        .filter(|n| !n.trim().is_empty())
+        .or_else(|| fetched.as_ref().ok().and_then(|f| f.file_name.clone()))
+        .unwrap_or(fallback);
+    let file_name = sab::nzb_file_name(&name).map_err(|e| Fail::Bad(e.to_owned()))?;
+    let job = Submission {
+        file_name: &file_name,
+        category: &category,
+        priority: 0,
+        post_processing: 0,
+    };
+    let writing = admin.queue.db().write_permit().await;
+    let queued = match fetched {
+        Ok(fetched) => admin.queue.enqueue_owned(&job, fetched.body).await,
+        Err(reason) => admin.queue.refuse(&job, 0, reason).await,
+    };
+    drop(writing);
+    match queued {
+        Ok(id) => Ok((StatusCode::CREATED, Json(Queued { id: id.0 }))),
+        Err(error @ (service::Error::Nzb(_) | service::Error::Invalid { .. })) => {
+            Err(Fail::Bad(error.to_string()))
+        }
+        Err(error) => {
+            tracing::warn!(reason = %error, "could not queue an NZB from URL");
             Err(Fail::Internal)
         }
     }

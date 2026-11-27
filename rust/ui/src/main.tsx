@@ -21,6 +21,9 @@ const Stats = named(() => import("./pages/stats"), "Stats");
 const Settings = named(() => import("./pages/settings"), "Settings");
 const System = named(() => import("./pages/system"), "System");
 const TracePage = named(() => import("./pages/traces"), "TracePage");
+const Watchtower = named(() => import("./pages/watchtower"), "Watchtower");
+const Watchdog = named(() => import("./pages/watchdog"), "Watchdog");
+const Search = named(() => import("./pages/search"), "Search");
 
 // A tab from an older build asks for page chunks the server no longer has.
 addEventListener("vite:preloadError", () => window.location.reload());
@@ -59,6 +62,9 @@ const router = createBrowserRouter(
         <Route path="settings/:category?" element={<Settings />} />
         <Route path="system" element={<System />} />
         <Route path="system/traces/:id" element={<TracePage />} />
+        <Route path="watchtower" element={<Watchtower />} />
+        <Route path="watchdog" element={<Watchdog />} />
+        <Route path="search" element={<Search />} />
         <Route path="*" element={<Navigate to="/overview" replace />} />
       </Route>
     </Route>,

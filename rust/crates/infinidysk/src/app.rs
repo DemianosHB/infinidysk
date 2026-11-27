@@ -634,6 +634,8 @@ pub async fn serve(
     if let Err(e) = db.warden_ensure_local_source().await {
         warn!(error = %e, "warden: seeding the local source failed");
     }
+    // Phase 3: play watchdog read/clear routes (the watchdog page).
+    let watchdog = crate::watchdog::build(db.clone(), Arc::clone(&config), Arc::clone(&auth));
     let warden_task = tokio::spawn({
         let warden = Arc::clone(&warden);
         let cancel = cancel.clone();
@@ -842,6 +844,7 @@ pub async fn serve(
         .merge(crate::play::router(Arc::clone(&play)))
         .merge(crate::prowlarr_sync::router(prowlarr_sync))
         .merge(crate::warden::router(warden))
+        .merge(crate::watchdog::router(watchdog))
         .merge(crate::watchtower::router(watchtower))
         .merge(hooks)
         .merge(crate::healthcheck::router(healthcheck))

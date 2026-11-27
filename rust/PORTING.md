@@ -50,6 +50,8 @@ cargo clippy --workspace --all-targets -- -D warnings   # full gate, or per PR C
 | Preflight orchestrator + fast verifier + negative cache | `backend/Services/Preflight*`; `preflight.*` keys | **Ported (Phase 3)** — `crates/infinidysk/src/preflight.rs`: cache, session registry, coalesced NZB fetch, stat-verify with sample count/timeout, `PreflightHook` from search; wired into play commit loop |
 | Watchdog entries + purge | `backend/Services/WatchdogLog.cs`, `WatchdogPurgeService.cs`, `Api/Controllers/*Watchdog*` | **Ported (Phase 3)** — `crates/db/src/watchdog.rs` (migration 0013) + play-route writes |
 | Watchtower (list sources, expanders, resolve, keep-fresh, admin routes) | `backend/Services/Watchtower/*`, `backend/Api/Controllers/Watchtower/*`; `watchtower.*` keys; `WATCHTOWER__*` env | **Ported (Phase 3)** — `crates/db/src/watchtower.rs` (migration 0014: `list_sources`, `wanted_items`) + `crates/infinidysk/src/watchtower.rs`: `ListSourceEnumerator` (Stremio catalogs/URL lists/discovery), `EpisodeEnumerator` (TVmaze/Kitsu), background loop (source sync → expand → resolve → keep-fresh with backoff + daily budget), routes `/api/get-watchtower`, `/api/watchtower-mutate` (13 actions), `/api/watchtower-discover-catalogs`, API-key gated; `TryWarmCacheAsync` hooked into play. Deviations: `ActiveCycle`/CycleLifetime → plain 15-min per-cycle timeout; EF change-tracker detach → read-modify-write under `Db::write_permit`; benchmark-gate pause not wired; episode enumeration hits TVmaze/Kitsu directly (v1's Wikidata path for non-IMDb ids not ported — IMDb and `kitsu:` ids only); provenance stores the simple (hyphen-less) GUID form of source ids; `WtPointer`/shortlist JSON stays PascalCase like v1 STJ |
+| v1-fork web UI pages (Watchtower, Watchdog, Search, Warden/Indexers/Profiles/Prowlarr settings) | v1 `frontend/app/routes/{watchtower,watchdog,search}` + `settings/{watchtower,watchdog,warden,indexers,profiles}` | **Ported (Phase 4)** — `rust/ui/src/pages/watchtower.tsx`, `watchdog.tsx`, `search.tsx`, `warden.tsx`, `fork-settings.tsx` + `src/api/fork.ts` (typed fetch for the v1-style API-key-gated routes, which are not in the generated OpenAPI). Backend additions: `GET /api/get-watchdog-entries`, `POST /api/clear-watchdog-entries` (`crates/infinidysk/src/watchdog.rs`, provider nicknames resolved from current config like v1), `POST /api/v1/queue/from-url` (search page "Queue", like SAB `addurl`). Layout stays responsive: sidebar at `lg+`, hamburger sheet below; all new pages use the scrollable `Table` (overflow-x) and wrap forms in flex rows, so they work on phones. |
+
 
 ## v1 features upstream 2.x does not plan (the reason this fork ports them here)
 
@@ -68,7 +70,7 @@ preferred-languages bias (in progress — 2.1 domain logic `crates/search`, 2.2 
 client, 2.3 Prowlarr client/sync/filter/models, 2.4 search execution `crates/profiles`
 done; remaining: 2.5 routes + Settings keys, 2.6 wiring + Prowlarr background sync);
 Phase 3 = Watchdog / Preflight / Warden / Watchtower + stall negative marking (**done**); then
-release + provider failover; Phase 4 = UI port into `ui/`, extension of the one-time C#
+release + provider failover; Phase 4 = UI port into `ui/` (**fork pages done**), extension of the one-time C#
 `/config` importer (`crates/import`) for the fork keys, CI and images for the Rust
 line.** Failover rule (decided): read-ahead PAR2 repair runs first; failover to another
 release/provider only engages when the read-ahead repair did not fix the failure
