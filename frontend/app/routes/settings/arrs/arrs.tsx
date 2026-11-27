@@ -329,8 +329,8 @@ export function ArrsSettings({ config, setNewConfig }: ArrsSettingsProps) {
               />
               <p className="text-[11px] leading-relaxed text-base-content/45">
                 When this is off, enabled instances still handle queue rules and repairs, but
-                NeoDysk does not poll Arr APIs for import health and hides the Overview widget.
-                The widget is also hidden when no instance is enabled.
+                NeoDysk does not poll Arr APIs for import health and hides the Overview widget. The
+                widget is also hidden when no instance is enabled.
               </p>
             </SettingsCard>
           </ManagedSetting>

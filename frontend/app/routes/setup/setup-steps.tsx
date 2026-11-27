@@ -306,8 +306,7 @@ function SymlinkPlaybackStep({
               <code>--rc-no-auth</code> is suitable only on an isolated trusted container network.
               For authentication, replace it with <code>--rc-user</code> and <code>--rc-pass</code>,
               then enter the same values below. A separate sidecar must bind <code>:5572</code>; use{" "}
-              <code>127.0.0.1:5572</code> only when rclone and NeoDysk share one network
-              namespace.
+              <code>127.0.0.1:5572</code> only when rclone and NeoDysk share one network namespace.
             </span>
           </Alert>
         </div>

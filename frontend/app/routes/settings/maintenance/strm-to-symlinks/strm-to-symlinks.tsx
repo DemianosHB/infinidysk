@@ -62,8 +62,8 @@ export function ConvertStrmToSymlinks({ savedConfig }: ConvertStrmToSymlinksProp
       )}
       <div className="space-y-4">
         <p className="text-sm leading-relaxed text-base-content/70">
-          Replace NeoDysk STRM files in the organized media library with filesystem symlinks to
-          the corresponding files in the rclone mount.
+          Replace NeoDysk STRM files in the organized media library with filesystem symlinks to the
+          corresponding files in the rclone mount.
         </p>
 
         <div className="rounded-lg border border-base-content/10 bg-base-200/40 p-3">

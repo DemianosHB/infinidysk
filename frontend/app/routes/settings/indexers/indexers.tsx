@@ -918,9 +918,9 @@ export function IndexersSettings({
 
         <HelpText className="sm:col-span-2">
           Synced entries point at Prowlarr's per-indexer Newznab proxy and are marked below.
-          Prowlarr owns their name, URL, API key, and enabled state; NeoDysk keeps your rate
-          limits, filters, category overrides, proxy, TLS, timeout, and user-agent tuning. Save
-          changes before syncing.
+          Prowlarr owns their name, URL, API key, and enabled state; NeoDysk keeps your rate limits,
+          filters, category overrides, proxy, TLS, timeout, and user-agent tuning. Save changes
+          before syncing.
         </HelpText>
       </SettingsCard>
 

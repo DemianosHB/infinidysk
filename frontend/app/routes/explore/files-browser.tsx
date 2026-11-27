@@ -752,9 +752,9 @@ export function FilesBrowser(props: Props) {
                 {searchTarget.path}
               </p>
               <p className="text-sm text-base-content/70">
-                Enabled Arr instances owning this file will be searched. NeoDysk will not remove
-                or blocklist the current file. Arr quality, cutoff, and monitoring rules still
-                apply; a replacement download is not guaranteed.
+                Enabled Arr instances owning this file will be searched. NeoDysk will not remove or
+                blocklist the current file. Arr quality, cutoff, and monitoring rules still apply; a
+                replacement download is not guaranteed.
               </p>
             </div>
           }

@@ -233,8 +233,7 @@ export default function SetupRoute({ loaderData }: Route.ComponentProps) {
               >
                 <Icon name="restart_alt" className="!text-[20px]" />
                 <span>
-                  Restart NeoDysk before testing playback so the Segment Cache change takes
-                  effect.
+                  Restart NeoDysk before testing playback so the Segment Cache change takes effect.
                 </span>
               </Alert>
             )}

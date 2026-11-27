@@ -24,8 +24,8 @@ export function LibrarySettings({ config, setNewConfig }: LibrarySettingsProps) 
         />
         <p className="text-[11px] leading-relaxed text-base-content/45" id="library-dir-help">
           The organized library root that contains your imported Arr symlinks or STRMs (the parent
-          of your Radarr/Sonarr root folders). Must be visible inside the NeoDysk container. Do
-          not point this at the rclone mount or at
+          of your Radarr/Sonarr root folders). Must be visible inside the NeoDysk container. Do not
+          point this at the rclone mount or at
           <code className="text-base-content/70">/completed-symlinks</code> — those are
           NeoDysk&apos;s virtual filesystem, not your library.
         </p>

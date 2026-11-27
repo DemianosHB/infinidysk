@@ -1138,8 +1138,7 @@ function RunStep({ m, onLinks }: { m: Hook; onLinks: () => void }) {
             Rewrite library symlinks
           </Button>
           <span className="text-xs text-base-content/50">
-            Optional — repoint Sonarr/Radarr/Plex symlinks at NeoDysk so nothing needs
-            re-importing.
+            Optional — repoint Sonarr/Radarr/Plex symlinks at NeoDysk so nothing needs re-importing.
           </span>
         </div>
       )}
@@ -1685,10 +1684,10 @@ function SymlinkResults({ m }: { m: Hook }) {
           <>
             This deletes {orphans} symlink entry(s) from your media library, so those paths will
             appear missing to Sonarr, Radarr, Plex, and other applications. It does not delete files
-            stored by Altmount or NeoDysk, and it does not tell your Arr applications to search
-            or re-grab them. A verified restore archive is written first, and only links still
-            pointing to the Altmount target recorded by this plan are removed. Real files, changed
-            links, unreadable links, and target data remain untouched.
+            stored by Altmount or NeoDysk, and it does not tell your Arr applications to search or
+            re-grab them. A verified restore archive is written first, and only links still pointing
+            to the Altmount target recorded by this plan are removed. Real files, changed links,
+            unreadable links, and target data remain untouched.
             <span className="mt-2 block font-semibold">
               After removal, run a Refresh &amp; Scan job in each affected Arr application so it
               detects the deleted links and marks those files as missing before you initiate or
@@ -1867,8 +1866,8 @@ function SymlinkRestoreAction({ m, onRestored }: { m: Hook; onRestored: () => vo
             <>
               Restore {archive?.entryCount ?? 0} symlink(s) from{" "}
               <span className="font-mono">{archive?.fileName}</span>? Links still pointing at their
-              recorded NeoDysk targets are restored, and missing links can be recreated. Real
-              files, link targets, and links changed after the rewrite are never overwritten.
+              recorded NeoDysk targets are restored, and missing links can be recreated. Real files,
+              link targets, and links changed after the rewrite are never overwritten.
             </>
           )
         }

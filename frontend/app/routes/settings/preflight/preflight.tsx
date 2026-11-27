@@ -23,8 +23,8 @@ export function PreflightSettings({ config, setNewConfig }: PreflightSettingsPro
   return (
     <SettingsPage>
       <SettingsIntro>
-        When a client asks for the list of available articles, NeoDysk can quietly do upfront
-        work on the top-ranked ones so the next request reuses that warm state instead of redoing
+        When a client asks for the list of available articles, NeoDysk can quietly do upfront work
+        on the top-ranked ones so the next request reuses that warm state instead of redoing
         everything from scratch. The harder the mode, the more it does.
       </SettingsIntro>
 

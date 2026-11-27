@@ -280,9 +280,9 @@ export function StreamingSettings({
               />
             </Tooltip>
             <Alert className="alert-soft items-start text-xs" variant="warning">
-              NeoDysk cannot automatically determine whether the configured path is slow storage
-              or flash with limited write endurance. Segment Cache is enabled by default; disable it
-              or set Cache path to local SSD/NVMe or other storage where the additional writes are
+              NeoDysk cannot automatically determine whether the configured path is slow storage or
+              flash with limited write endurance. Segment Cache is enabled by default; disable it or
+              set Cache path to local SSD/NVMe or other storage where the additional writes are
               acceptable.
             </Alert>
             {showReadAheadWarning && (
