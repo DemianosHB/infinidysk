@@ -190,7 +190,7 @@ impl Auth {
     }
 
     /// Whether `auth.mode` lets this client in without signing in.
-    async fn exempt(&self, headers: &HeaderMap, extensions: &Extensions) -> bool {
+    pub(crate) async fn exempt(&self, headers: &HeaderMap, extensions: &Extensions) -> bool {
         let config = self.config.read().await;
         let settings = config.settings();
         let mode = settings.auth.mode;

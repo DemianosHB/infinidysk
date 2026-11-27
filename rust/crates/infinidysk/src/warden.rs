@@ -86,7 +86,7 @@ async fn require_api_key(
     next: axum::middleware::Next,
 ) -> Response {
     let allowed =
-        api_key_allowed(&state.config, &state.auth, req.headers(), req.uri().query()).await;
+        api_key_allowed(&state.config, &state.auth, req.headers(), req.uri().query(), req.extensions()).await;
     if allowed {
         return next.run(req).await;
     }
