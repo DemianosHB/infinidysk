@@ -1570,6 +1570,44 @@ export function Settings() {
                       empty="None. Clients are shown by the address that connected."
                     />
                   </Field>
+                  <Field
+                    id="proxy-socks5"
+                    label={label(
+                      "Outbound SOCKS5 proxy",
+                      "proxy.socks5",
+                      "All non-local outbound traffic — NNTP provider connections and HTTP (indexers, metadata resolvers, rclone RC) — is tunneled through this proxy, e.g. a Gluetun container on the same Docker network. DNS is resolved by the proxy and TLS stays end-to-end between client and server. Loopback addresses and single-label Docker service names always connect directly.",
+                    )}
+                    hint="socks5://host:port (socks5h:// is accepted and normalized); empty disables the proxy. Can also be pinned with INFINIDYSK__PROXY__SOCKS5. Applies to new connections after saving."
+                    error={invalid("proxy.socks5")}
+                  >
+                    <Input
+                      id="proxy-socks5"
+                      className="font-mono"
+                      placeholder="socks5://gluetun:1080"
+                      disabled={locked("proxy.socks5")}
+                      value={draft.proxy.socks5}
+                      onChange={(e) => patch("proxy", { socks5: e.target.value })}
+                    />
+                  </Field>
+                  <Field
+                    id="proxy-socks5-bypass"
+                    label={label(
+                      "Proxy bypass",
+                      "proxy.socks5_bypass",
+                      "Hosts that always connect directly: host names (also covering their subdomains), domain suffixes (.lan or *.lan), IP addresses, CIDR ranges, or * for everything.",
+                    )}
+                    hint="Comma-separated list. Can also be pinned with INFINIDYSK__PROXY__SOCKS5_BYPASS."
+                    error={invalid("proxy.socks5_bypass")}
+                  >
+                    <Input
+                      id="proxy-socks5-bypass"
+                      className="font-mono"
+                      placeholder="umbrel.internal, news.eweka.nl, .lan, 192.168.0.0/16"
+                      disabled={locked("proxy.socks5_bypass")}
+                      value={draft.proxy.socks5_bypass}
+                      onChange={(e) => patch("proxy", { socks5_bypass: e.target.value })}
+                    />
+                  </Field>
                 </SettingsPanel>
               </Section>
             )}
