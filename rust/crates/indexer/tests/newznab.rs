@@ -416,6 +416,43 @@ async fn char_refs_and_predefined_entities_resolve_like_dotnet() {
 }
 
 #[tokio::test]
+async fn prowlarr_style_feed_with_amp_links_parses() {
+    // The full Prowlarr feed shape: atom:link in the channel, a prowlarrindexer element,
+    // and '&amp;' inside the download link and enclosure URL — the case that broke
+    // parsing before character references/predefined entities were resolved.
+    let xml = concat!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+        r#"<rss version="1.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">"#,
+        r#"<channel><atom:link rel="self" type="application/rss+xml" /><title>Prowlarr</title>"#,
+        r#"<item><title>Example Release</title><description>Example Release</description>"#,
+        r#"<guid>https://indexer.example/details/abc123</guid>"#,
+        r#"<prowlarrindexer id="1" type="private">ExampleIndexer</prowlarrindexer>"#,
+        r#"<pubDate>Fri, 27 Nov 2026 18:08:28 +0000</pubDate><size>8235519</size>"#,
+        r#"<link>http://localhost:9696/1/download?apikey=k&amp;link=aHh4&amp;file=Example</link>"#,
+        r#"<category>7010</category>"#,
+        r#"<enclosure url="http://localhost:9696/1/download?apikey=k&amp;link=aHh4&amp;file=Example" length="8235519" type="application/x-nzb" />"#,
+        r#"<newznab:attr name="grabs" value="9" /></item>"#,
+        r#"</channel></rss>"#
+    );
+    let (addr, _requests) = serve(vec![Reply::ok(xml.as_bytes().to_vec())]).await;
+    let client = client_for(addr, 1 << 20);
+
+    let items = client
+        .search("query", 100, &CancellationToken::new())
+        .await
+        .unwrap();
+
+    let item = items.first().expect("one item");
+    assert_eq!(item.title, "Example Release");
+    assert_eq!(
+        item.nzb_url,
+        "http://localhost:9696/1/download?apikey=k&link=aHh4&file=Example"
+    );
+    assert_eq!(item.size, 8_235_519);
+    assert_eq!(item.grabs, Some(9));
+}
+
+#[tokio::test]
 async fn undeclared_entity_is_format_error_without_leaking_name() {
     // With DTDs prohibited, a named non-predefined entity is not well-formed; .NET
     // rejects it too. The error must not contain the entity/body text.
