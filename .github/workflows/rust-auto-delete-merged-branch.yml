@@ -1,0 +1,39 @@
+name: rust Auto-delete merged branch
+
+# Mirror of v1-auto-delete-merged-branch.yml on the v1 line: after a PR is merged
+# into the `rust` branch, delete its head branch automatically. No-op for
+# closed-unmerged PRs, for PRs from other forks, and when the head branch is
+# `rust` itself. The repo default branch is v1, so the base check compares
+# against the literal 'rust', not github.event.repository.default_branch.
+# Note: GitHub also offers the built-in repo setting "Automatically delete head
+# branches" (Settings -> General); this workflow enforces the same in code.
+
+on:
+  pull_request:
+    types: [closed]
+
+concurrency:
+  group: rust-auto-delete-branch-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  delete-merged-head:
+    name: Delete merged PR head branch
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'rust' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref != 'rust'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete head branch ${{ github.event.pull_request.head.ref }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "PR #${{ github.event.pull_request.number }} merged into ${{ github.event.pull_request.base.ref }}; deleting head branch '${{ github.event.pull_request.head.ref }}'"
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/${{ github.event.pull_request.head.ref }}" \
+            || echo "Head ref already gone (deleted manually or by a previous run); nothing to do."
