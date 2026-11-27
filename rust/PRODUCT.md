@@ -8,11 +8,11 @@ web
 
 ## Users
 
-Self-hosters running a Sonarr/Radarr plus Plex/Jellyfin stack in Docker, often upgrading from infinidysk 1.x. They open the UI to add providers and Arr instances, watch imports and playback, and troubleshoot when a read stalls or an import fails. Most visits are short check-ins; long visits happen while debugging.
+Self-hosters running a Sonarr/Radarr plus Plex/Jellyfin stack in Docker, often upgrading from neodysk 1.x. They open the UI to add providers and Arr instances, watch imports and playback, and troubleshoot when a read stalls or an import fails. Most visits are short check-ins; long visits happen while debugging.
 
 ## Product Purpose
 
-infinidysk is a Usenet-backed virtual filesystem. It takes NZBs from Arr instances through a SABnzbd-compatible API and serves the media through a native FUSE mount and WebDAV, streaming from Usenet providers instead of downloading files to disk. Success is a library that plays like local files, imports that the Arrs accept without special handling, and problems that the user can find and fix from the UI.
+neodysk is a Usenet-backed virtual filesystem. It takes NZBs from Arr instances through a SABnzbd-compatible API and serves the media through a native FUSE mount and WebDAV, streaming from Usenet providers instead of downloading files to disk. Success is a library that plays like local files, imports that the Arrs accept without special handling, and problems that the user can find and fix from the UI.
 
 ## Positioning
 
@@ -40,7 +40,7 @@ infinidysk is a Usenet-backed virtual filesystem. It takes NZBs from Arr instanc
 
 ## Brand Commitments
 
-- Name: infinidysk, written lowercase everywhere (UI, docs, code, commits, PRs), even at the start of a sentence.
+- Name: neodysk, written lowercase everywhere (UI, docs, code, commits, PRs), even at the start of a sentence.
 - Voice: plain, direct, and specific; say what happened and what to do next.
 - Never write movie, show, episode, album, book or release names anywhere; describe files generically (for example "stored RAR5 episode").
 - Never name competing or upstream-fork projects.
@@ -54,7 +54,7 @@ infinidysk is a Usenet-backed virtual filesystem. It takes NZBs from Arr instanc
 
 ## Product Principles
 
-1. SABnzbd is the truthstone: if SABnzbd accepts an NZB, so does infinidysk.
+1. SABnzbd is the truthstone: if SABnzbd accepts an NZB, so does neodysk.
 2. Playback first: never trade throughput or prefetch for lower memory.
 3. Self-explaining failures: a known failure shows one clear reason and next step, not a stack dump.
 4. Opinionated defaults over toggles: managed provider catalog, always-on cascade routing, one global cache layer.

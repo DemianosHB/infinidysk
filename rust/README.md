@@ -5,10 +5,10 @@
 > [PORTING.md](PORTING.md) for the plan and status. Everything below is upstream's README.
 
 <p align="center">
-  <img src="ui/public/logo.svg" width="128" alt="infinidysk logo" />
+  <img src="ui/public/logo.svg" width="128" alt="neodysk logo" />
 </p>
 
-<h1 align="center">infinidysk</h1>
+<h1 align="center">neodysk</h1>
 
 <p align="center"><strong>Your media library, streamed from Usenet.</strong></p>
 
@@ -28,19 +28,19 @@
   <a href="https://github.com/infinidysk/infinidysk/issues">Issues</a>
 </p>
 
-infinidysk is a Usenet-backed virtual filesystem. Sonarr, Radarr and other Arr apps add it as a SABnzbd download client. It never downloads the release: your media server reads the files over a native FUSE mount or WebDAV, and infinidysk streams them from your Usenet providers on demand.
+neodysk is a Usenet-backed virtual filesystem. Sonarr, Radarr and other Arr apps add it as a SABnzbd download client. It never downloads the release: your media server reads the files over a native FUSE mount or WebDAV, and neodysk streams them from your Usenet providers on demand.
 
-This is infinidysk **2.0**, rewritten in Rust and now in **beta**. On 1.x? See [Looking for 1.x?](#looking-for-1x)
+This is neodysk **2.0**, rewritten in Rust and now in **beta**. On 1.x? See [Looking for 1.x?](#looking-for-1x)
 
 > [!WARNING]
 > **Moving from 1.x to 2.x is a breaking change.** Changing the image name alone is not an upgrade. Follow [Upgrade from 1.x](https://www.infinidysk.com/v2/upgrade/), and check [what is not in 2.x yet](https://www.infinidysk.com/v2/whats-new/#feature-comparison).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/overview-dark.png" />
-  <img src=".github/assets/overview-light.png" alt="The infinidysk Overview page: files being read right now, download activity for the last 24 hours, and summary tiles for reads, stalls, provider misses, imports, health checks and cache" />
+  <img src=".github/assets/overview-light.png" alt="The neodysk Overview page: files being read right now, download activity for the last 24 hours, and summary tiles for reads, stalls, provider misses, imports, health checks and cache" />
 </picture>
 
-## Why infinidysk
+## Why neodysk
 
 - **No download.** The library streams straight from your Usenet providers, so it takes no disk space.
 - **One container.** A single Rust binary with a built-in FUSE mount. There is no rclone sidecar.
@@ -55,9 +55,9 @@ A new install. Coming from 1.x? Follow [Upgrade from 1.x](https://www.infinidysk
 
 ```yaml
 services:
-  infinidysk:
+  neodysk:
     image: ghcr.io/infinidysk/infinidysk-next:edge
-    container_name: infinidysk
+    container_name: neodysk
     restart: unless-stopped
     environment:
       PUID: 1000
@@ -116,7 +116,7 @@ Next steps in the docs:
 
 Addon routes are not in 2.x yet. Search, indexers, Prowlarr, Watchtower, Preflight and Warden are not planned. The [feature comparison](https://www.infinidysk.com/v2/whats-new/#feature-comparison) has the full list.
 
-Compressed archives cannot be streamed. infinidysk detects them and fails the import with a clear reason.
+Compressed archives cannot be streamed. neodysk detects them and fails the import with a clear reason.
 
 ### PAR2 repair
 
@@ -124,9 +124,9 @@ PAR2 repair is an experiment: enable it in **Settings → Experiments**, then re
 
 Availability checks use small NNTP STAT requests plus first, middle and last article body spot checks. They need no PAR2 proof and do not download a whole file to hash it. An available result does not prove every byte is intact. Availability and repair have separate workers, so reconstruction does not block cheap checks. Availability leaves provider connections free and yields when playback starts, then resumes without consuming an attempt. Playback keeps priority over repair.
 
-Limits are fixed. One repair runs at a time, with 256 MB working memory, 100 GB decoded source reads and one hour per attempt, and release sets up to 16 GB. A failed attempt retries after six hours, up to three attempts. A file found damaged beyond repair is not retried. Unsupported compression and missing passwords fail directly. Every reconstructed source passes full checksum verification before infinidysk publishes it, and all sets of one job publish together.
+Limits are fixed. One repair runs at a time, with 256 MB working memory, 100 GB decoded source reads and one hour per attempt, and release sets up to 16 GB. A failed attempt retries after six hours, up to three attempts. A file found damaged beyond repair is not retried. Unsupported compression and missing passwords fail directly. Every reconstructed source passes full checksum verification before neodysk publishes it, and all sets of one job publish together.
 
-Saved repair articles live in `repairs/` inside your config folder (`/config/repairs` by default), up to 4 GB. When a new repair needs room, the least recently read repairs are removed and their files go back to health checks. Built-in backup and restore supports SQLite only; those backups include verified repair bytes and pending C# repair candidates. For PostgreSQL, stop infinidysk, take a database dump with `pg_dump` and copy that repair directory as a matched pair. Restore both before restarting infinidysk. A dump alone cannot recover the repair bytes; missing repairs trigger health rechecks. To move an install, stop infinidysk and copy the whole config directory, including `repairs/`. Back up config before upgrading.
+Saved repair articles live in `repairs/` inside your config folder (`/config/repairs` by default), up to 4 GB. When a new repair needs room, the least recently read repairs are removed and their files go back to health checks. Built-in backup and restore supports SQLite only; those backups include verified repair bytes and pending C# repair candidates. For PostgreSQL, stop neodysk, take a database dump with `pg_dump` and copy that repair directory as a matched pair. Restore both before restarting neodysk. A dump alone cannot recover the repair bytes; missing repairs trigger health rechecks. To move an install, stop neodysk and copy the whole config directory, including `repairs/`. Back up config before upgrading.
 
 Repairs for articles omitted from an NZB require a saved PAR2 recovery-set identity and trusted byte ranges. Repair recovers missing proofs from the original NZB when possible. C# repair files are preserved as candidates and become normal saved repairs only after full PAR2 verification. The importer retires its old reader after a complete rewrite pass and seven days without use; original C# files are retained.
 
