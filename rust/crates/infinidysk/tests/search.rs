@@ -257,6 +257,44 @@ async fn search_indexers_requires_api_key_and_dedupes_sorts() {
 }
 
 #[tokio::test]
+async fn search_indexers_reports_enriched_format_error_for_non_xml_answer() {
+    // A 200 answer that is not XML (login page, SPA shell, garbled feed) must surface the
+    // safe response metadata in the per-indexer error — never the URL, key, or body.
+    let (addr, _targets) = newznab_server("<!DOCTYPE html><html><body>login</body></html>").await;
+    let app = build_app(&format!("http://{addr}/api"), PROFILES).await;
+
+    let r = send(&app, "GET", "/api/search-indexers?q=x&apikey=sabkey", &[]).await;
+    assert_eq!(r.code, StatusCode::OK);
+    let body = r.json();
+    let status = &body["indexers"][0];
+    assert_eq!(status["name"], "a");
+    assert_eq!(status["ok"], false);
+    let err = status["error"].as_str().unwrap();
+    assert!(
+        err.starts_with("Indexer returned invalid XML (HTTP 200, content-type none, "),
+        "{err}"
+    );
+    assert!(err.contains("XML error at byte offset "), "{err}");
+    assert!(!err.contains("apikey"), "{err}");
+    assert!(!err.contains("login"), "{err}");
+}
+
+#[tokio::test]
+async fn search_indexers_passes_newznab_protocol_error_through() {
+    let (addr, _targets) = newznab_server(
+        r#"<?xml version="1.0"?><error code="100" description="Missing parameter"/>"#,
+    )
+    .await;
+    let app = build_app(&format!("http://{addr}/api"), PROFILES).await;
+
+    let r = send(&app, "GET", "/api/search-indexers?q=x&apikey=sabkey", &[]).await;
+    assert_eq!(r.code, StatusCode::OK);
+    let status = &r.json()["indexers"][0];
+    assert_eq!(status["ok"], false);
+    assert_eq!(status["error"], "[100] Missing parameter");
+}
+
+#[tokio::test]
 async fn newznab_adapter_serves_caps_and_movie_feed_with_play_tokens() {
     let (addr, _targets) = newznab_server(RSS).await;
     let app = build_app(&format!("http://{addr}/api"), PROFILES).await;
