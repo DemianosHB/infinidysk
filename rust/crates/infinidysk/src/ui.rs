@@ -12,9 +12,11 @@ use std::sync::LazyLock;
 #[folder = "../../ui/dist"]
 struct Assets;
 
-/// Paths served by the SAB/admin APIs, `WebDAV` and the container health check.
-const BACKEND: [&str; 9] = [
+/// Paths served by the SAB/admin APIs, the Stremio/Newznab adapters, `WebDAV` and the
+/// container health check.
+const BACKEND: [&str; 10] = [
     "/api",
+    "/adapters",
     "/auth/oidc",
     "/metrics",
     "/view",
@@ -92,9 +94,12 @@ mod tests {
     #[test]
     fn backend_prefixes_match_whole_segments() {
         assert!(super::backend("/api"));
+        assert!(super::backend("/adapters/addon/tok/manifest.json"));
+        assert!(super::backend("/adapters/newznab/tok/api"));
         assert!(super::backend("/content/tv/x.mkv"));
         assert!(super::backend("/auth/oidc/callback"));
         assert!(!super::backend("/apifoo"));
+        assert!(!super::backend("/adaptersfoo"));
         assert!(!super::backend("/"));
         assert!(!super::backend("/queue"));
     }
