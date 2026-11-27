@@ -397,6 +397,99 @@ async fn content_type_reflecting_key_is_sanitized_to_unknown() {
 }
 
 #[tokio::test]
+async fn char_refs_and_predefined_entities_resolve_like_dotnet() {
+    // quick-xml splits every `&...;` in text into a GeneralRef event; numeric character
+    // references (common in RSS titles) and predefined entities must resolve, as
+    // .NET XmlReader does, instead of failing the whole feed.
+    let xml = br#"<?xml version="1.0"?><rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Tom &#x27; Jerry &amp; Co &#39;</title><guid>g1</guid><link>http://nzb.example/a.nzb</link><enclosure url="http://nzb.example/dl?x=1&amp;y=2&#x26;z=3" length="10"/></item></channel></rss>"#.to_vec();
+    let (addr, _requests) = serve(vec![Reply::ok(xml)]).await;
+    let client = client_for(addr, 4096);
+
+    let items = client
+        .search("query", 100, &CancellationToken::new())
+        .await
+        .unwrap();
+
+    let item = items.first().expect("one item");
+    assert_eq!(item.title, "Tom ' Jerry & Co '");
+    assert_eq!(item.nzb_url, "http://nzb.example/dl?x=1&y=2&z=3");
+}
+
+#[tokio::test]
+async fn prowlarr_style_feed_with_amp_links_parses() {
+    // The full Prowlarr feed shape: atom:link in the channel, a prowlarrindexer element,
+    // and '&amp;' inside the download link and enclosure URL — the case that broke
+    // parsing before character references/predefined entities were resolved.
+    let xml = concat!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+        r#"<rss version="1.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">"#,
+        r#"<channel><atom:link rel="self" type="application/rss+xml" /><title>Prowlarr</title>"#,
+        r#"<item><title>Example Release</title><description>Example Release</description>"#,
+        r#"<guid>https://indexer.example/details/abc123</guid>"#,
+        r#"<prowlarrindexer id="1" type="private">ExampleIndexer</prowlarrindexer>"#,
+        r#"<pubDate>Fri, 27 Nov 2026 18:08:28 +0000</pubDate><size>8235519</size>"#,
+        r#"<link>http://localhost:9696/1/download?apikey=k&amp;link=aHh4&amp;file=Example</link>"#,
+        r#"<category>7010</category>"#,
+        r#"<enclosure url="http://localhost:9696/1/download?apikey=k&amp;link=aHh4&amp;file=Example" length="8235519" type="application/x-nzb" />"#,
+        r#"<newznab:attr name="grabs" value="9" /></item>"#,
+        r#"</channel></rss>"#
+    );
+    let (addr, _requests) = serve(vec![Reply::ok(xml.as_bytes().to_vec())]).await;
+    let client = client_for(addr, 1 << 20);
+
+    let items = client
+        .search("query", 100, &CancellationToken::new())
+        .await
+        .unwrap();
+
+    let item = items.first().expect("one item");
+    assert_eq!(item.title, "Example Release");
+    assert_eq!(
+        item.nzb_url,
+        "http://localhost:9696/1/download?apikey=k&link=aHh4&file=Example"
+    );
+    assert_eq!(item.size, 8_235_519);
+    assert_eq!(item.grabs, Some(9));
+}
+
+#[tokio::test]
+async fn undeclared_entity_is_format_error_without_leaking_name() {
+    // With DTDs prohibited, a named non-predefined entity is not well-formed; .NET
+    // rejects it too. The error must not contain the entity/body text.
+    let xml = format!(
+        r#"<?xml version="1.0"?><rss><channel><item><title>&{BODY_MARKER};</title></item></channel></rss>"#
+    )
+    .into_bytes();
+    let (addr, _requests) = serve(vec![Reply::ok(xml)]).await;
+    let client = client_for(addr, 4096);
+
+    let err = client
+        .search("query", 100, &CancellationToken::new())
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, Error::Format { .. }), "{err:?}");
+    assert!(!err.to_string().contains(BODY_MARKER));
+    assert!(!format!("{err:?}").contains(BODY_MARKER));
+}
+
+#[tokio::test]
+async fn illegal_char_ref_is_format_error() {
+    // &#x0B; (vertical tab) is not a legal XML 1.0 character; .NET rejects it as well.
+    let xml = br#"<?xml version="1.0"?><rss><channel><item><title>a&#x0B;b</title></item></channel></rss>"#
+        .to_vec();
+    let (addr, _requests) = serve(vec![Reply::ok(xml)]).await;
+    let client = client_for(addr, 4096);
+
+    let err = client
+        .search("query", 100, &CancellationToken::new())
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, Error::Format { .. }), "{err:?}");
+}
+
+#[tokio::test]
 async fn newznab_error_element_is_protocol_error_not_format() {
     // Ported from QueryAsync_NewznabErrorElement_IsProtocolErrorNotFormat.
     let xml =
