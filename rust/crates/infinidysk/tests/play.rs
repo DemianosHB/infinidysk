@@ -316,6 +316,64 @@ async fn stream_route_lists_candidates_with_play_urls() {
 }
 
 #[tokio::test]
+async fn stream_route_play_urls_use_reachable_host_when_public_url_unset() {
+    let (addr, _t) = http_server(200, RSS).await;
+    let (app, _play, _db) = build_app(&format!("http://{addr}/api"), PROFILES, &[]).await;
+    let path = "/adapters/addon/tok/stream/movie/tt123.json";
+
+    // No `network.public_url` configured: the play URL must use the request's Host
+    // header (the address the client actually used), not `http://localhost`.
+    let r = send(&app, "GET", path, &[("host", "umbrel.internal:30132")]).await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.text());
+    let v = r.json();
+    let url = v["streams"][0]["url"].as_str().unwrap();
+    assert!(
+        url.starts_with("http://umbrel.internal:30132/adapters/"),
+        "{url}"
+    );
+
+    // Behind a proxy, X-Forwarded-Host/Proto win over Host, consistent with the
+    // X-Forwarded-Prefix handling.
+    let r = send(
+        &app,
+        "GET",
+        path,
+        &[
+            ("host", "umbrel.internal:30132"),
+            ("x-forwarded-host", "dysk.example.com"),
+            ("x-forwarded-proto", "https"),
+        ],
+    )
+    .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.text());
+    let v = r.json();
+    let url = v["streams"][0]["url"].as_str().unwrap();
+    assert!(
+        url.starts_with("https://dysk.example.com/adapters/"),
+        "{url}"
+    );
+
+    // A configured public URL still wins over all request headers.
+    let (app2, _p, _d) = build_app(
+        &format!("http://{addr}/api"),
+        PROFILES,
+        &[(
+            "INFINIDYSK__NETWORK__PUBLIC_URL",
+            "http://configured.example:9000",
+        )],
+    )
+    .await;
+    let r = send(&app2, "GET", path, &[("host", "umbrel.internal:30132")]).await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.text());
+    let v = r.json();
+    let url = v["streams"][0]["url"].as_str().unwrap();
+    assert!(
+        url.starts_with("http://configured.example:9000/adapters/"),
+        "{url}"
+    );
+}
+
+#[tokio::test]
 async fn play_route_404_gates() {
     let (addr, _t) = http_server(200, RSS).await;
     let (app, play, _db) = build_app(&format!("http://{addr}/api"), PROFILES, &[]).await;
