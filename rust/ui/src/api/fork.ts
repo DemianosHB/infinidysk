@@ -16,7 +16,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: "same-origin",
     ...init,
-    headers: { ...(init?.body instanceof FormData ? {} : { "content-type": "application/json" }), ...init?.headers },
+    headers: { ...(typeof init?.body === "string" ? { "content-type": "application/json" } : {}), ...init?.headers },
   });
   const text = await response.text();
   let json: unknown = null;
