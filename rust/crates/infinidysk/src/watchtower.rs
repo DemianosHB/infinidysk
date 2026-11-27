@@ -260,6 +260,35 @@ fn is_imdb_id(content_id: &str) -> bool {
     normalize_imdb(content_id).is_some()
 }
 
+/// True when a stored title is just a raw-id fallback (empty, equal to the content id,
+/// or prefixed by the imdb id) instead of a resolved display title.
+fn is_unresolved_title(title: &str, content_id: &str) -> bool {
+    let t = title.trim();
+    if t.is_empty() || t.eq_ignore_ascii_case(content_id) {
+        return true;
+    }
+    let base = content_id.split(':').next().unwrap_or("");
+    is_imdb_id(base)
+        && t.get(..base.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(base))
+}
+
+/// Composes the display title for an imdb-shaped content id from the resolved base title.
+fn compose_imdb_title(base_title: &str, content_id: &str) -> String {
+    let parts: Vec<&str> = content_id.split(':').collect();
+    if parts.len() >= 3
+        && let (Ok(season), Ok(episode)) = (parts[1].parse::<i32>(), parts[2].parse::<i32>())
+    {
+        return format!("{base_title} S{season:02}E{episode:02}");
+    }
+    if parts.len() == 2
+        && let Ok(season) = parts[1].parse::<i32>()
+    {
+        return format!("{base_title} S{season:02}");
+    }
+    base_title.to_owned()
+}
+
 async fn http_get_json(
     client: &reqwest::Client,
     url: &str,
@@ -1017,6 +1046,45 @@ impl Watchtower {
         Ok(())
     }
 
+    /// Resolves a display title for an imdb-shaped content id via the shared
+    /// `ImdbTitleResolver` (`TVmaze`/`Wikidata`, cached), composing `SxxEyy` suffixes.
+    async fn resolve_content_title(
+        self: &Arc<Self>,
+        r#type: &str,
+        content_id: &str,
+        ct: &CancellationToken,
+    ) -> Option<String> {
+        if !is_imdb_id(content_id) {
+            return None;
+        }
+        let imdb = canonical_imdb(content_id);
+        let base_type = if r#type == "movie" { "movie" } else { "series" };
+        let base = self
+            .search
+            .service
+            .resolvers()
+            .title
+            .get_title(base_type, Some(&imdb[2..]), None, ct)
+            .await?;
+        if base.trim().is_empty() {
+            return None;
+        }
+        Some(compose_imdb_title(&base, content_id))
+    }
+
+    /// Replaces a raw-id title on `item` with the resolved display title, if any.
+    async fn backfill_title(self: &Arc<Self>, item: &mut WantedItemRow, ct: &CancellationToken) {
+        if !is_unresolved_title(&item.title, &item.content_id) {
+            return;
+        }
+        if let Some(resolved) = self
+            .resolve_content_title(&item.r#type, &item.content_id, ct)
+            .await
+        {
+            item.title = resolved;
+        }
+    }
+
     async fn reconcile_source(
         self: &Arc<Self>,
         source: &mut ListSourceRow,
@@ -1046,11 +1114,13 @@ impl Watchtower {
                         key: key.clone(),
                         r#type: r.r#type.clone(),
                         content_id: r.content_id.clone(),
-                        title: r
-                            .title
-                            .clone()
-                            .filter(|t| !t.trim().is_empty())
-                            .unwrap_or_else(|| r.content_id.clone()),
+                        title: match r.title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+                            Some(t) if !is_unresolved_title(t, &r.content_id) => t.to_owned(),
+                            _ => self
+                                .resolve_content_title(&r.r#type, &r.content_id, ct)
+                                .await
+                                .unwrap_or_else(|| r.content_id.clone()),
+                        },
                         state: if watchtower::is_bare_series(&r.r#type, &r.content_id) {
                             STATE_EXPANDER.to_owned()
                         } else {
@@ -1078,13 +1148,20 @@ impl Watchtower {
                         updated.provenance = write_strings(&prov);
                         changed = true;
                     }
-                    if row.title.trim().is_empty()
-                        && let Some(t) = &r.title
-                        && !t.trim().is_empty()
+                    if let Some(t) = r.title.as_deref().map(str::trim).filter(|t| !t.is_empty())
+                        && is_unresolved_title(&row.title, &row.content_id)
                     {
-                        updated.title = t.clone();
+                        updated.title = t.to_owned();
+                        changed = true;
+                    } else if is_unresolved_title(&row.title, &row.content_id)
+                        && let Some(resolved) = self
+                            .resolve_content_title(&row.r#type, &row.content_id, ct)
+                            .await
+                    {
+                        updated.title = resolved;
                         changed = true;
                     }
+
                     if row.state != STATE_EXPANDER
                         && watchtower::is_bare_series(&row.r#type, &row.content_id)
                     {
@@ -1209,6 +1286,7 @@ impl Watchtower {
                 break;
             }
             let scopes = effective_scopes(&expander, &scope_by_source, &global_scope);
+            self.backfill_title(&mut expander, ct).await;
             if !scopes.is_empty()
                 && let Err(e) = self.expand_one(&expander, &scopes, now, ct).await
             {
@@ -1245,10 +1323,20 @@ impl Watchtower {
         for (child_key, row) in &desired {
             if let Some(child) = existing_by_key.get(child_key) {
                 let mut prov = read_strings(&child.provenance);
+                let mut updated = child.clone();
+                let mut changed = false;
                 if !prov.contains(&tag) {
                     prov.push(tag.clone());
-                    let mut updated = child.clone();
                     updated.provenance = write_strings(&prov);
+                    changed = true;
+                }
+                if is_unresolved_title(&child.title, &child.content_id)
+                    && !is_unresolved_title(&row.2, &row.1)
+                {
+                    updated.title = row.2.clone();
+                    changed = true;
+                }
+                if changed {
                     updated.updated_at = now;
                     let _ = self.db.update_wanted(&updated).await;
                 }
@@ -1803,6 +1891,7 @@ impl Watchtower {
                 .await
                 .map_err(|e| e.to_string());
         }
+        self.backfill_title(&mut item, ct).await;
         // v1 calls SearchByImdbAsync(profileToken, type, contentId, ...) and verifies the
         // identity itself; preflight is started by this resolver, not by the search.
         let search = self
@@ -2085,6 +2174,7 @@ impl Watchtower {
         let s = self.settings().await;
         let wt = &s.watchtower;
         let now = now();
+        self.backfill_title(item, ct).await;
         let mut shortlist = read_pointers(&item.shortlist);
         let Some(winner_nzb) = item.winner_nzb.clone() else {
             STATE_SCOUTING.clone_into(&mut item.state);
@@ -2815,7 +2905,7 @@ async fn mutate(
         "remove-source" => remove_source(&state, &form, now).await,
         "toggle-source" => toggle_source(&state, &form, now).await,
         "set-source-scope" => set_source_scope(&state, &form, now).await,
-        "add-item" => add_item(&state, &form, now).await,
+        "add-item" => add_item(&state, &form, now, &ct).await,
         "remove-item" => remove_item(&state, &form, now).await,
         "remove-items" => remove_items(&state, &form, now).await,
         "recheck-item" => recheck_item(&state, &form, now).await,
@@ -3065,6 +3155,7 @@ async fn add_item(
     state: &Arc<Watchtower>,
     form: &HashMap<String, String>,
     now: i64,
+    ct: &CancellationToken,
 ) -> Result<(), Response> {
     let r#type = match form.get("type").map_or("", String::as_str) {
         "series" | "tv" | "show" => "series",
@@ -3077,11 +3168,18 @@ async fn add_item(
     if content_id.is_empty() {
         return Err(bad_request("A content id (e.g. an imdb id) is required."));
     }
-    let title = form
+    let form_title = form
         .get("title")
-        .map(|t| t.trim().to_owned())
-        .filter(|t| !t.is_empty())
-        .unwrap_or_else(|| content_id.clone());
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
+    let title = match form_title {
+        Some(t) if !is_unresolved_title(t, &content_id) => t.to_owned(),
+        _ => state
+            .resolve_content_title(r#type, &content_id, ct)
+            .await
+            .unwrap_or_else(|| content_id.clone()),
+    };
     let _permit = state.db.write_permit().await;
     let manual = manual_source(&state.db, now)
         .await
@@ -3094,11 +3192,26 @@ async fn add_item(
         .await
         .map_err(|e| bad_request(&e.to_string()))?
     {
-        let mut prov = read_strings(&existing.provenance);
+        let mut updated = existing;
+        let mut changed = false;
+        let mut prov = read_strings(&updated.provenance);
         if !prov.contains(&src_id) {
             prov.push(src_id);
-            let mut updated = existing;
             updated.provenance = write_strings(&prov);
+            changed = true;
+        }
+        let resolved_title = if is_unresolved_title(&updated.title, &updated.content_id) {
+            state
+                .resolve_content_title(&updated.r#type, &updated.content_id, ct)
+                .await
+        } else {
+            None
+        };
+        if let Some(resolved) = resolved_title {
+            updated.title = resolved;
+            changed = true;
+        }
+        if changed {
             updated.updated_at = now;
             state
                 .db
@@ -3409,6 +3522,41 @@ mod tests {
         assert_eq!(
             read_strings("[\"a\",\"b\"]"),
             vec!["a".to_owned(), "b".to_owned()]
+        );
+    }
+
+    #[test]
+    fn is_unresolved_title_detects_raw_id_fallbacks() {
+        assert!(is_unresolved_title("", "tt1234567:2:1"));
+        assert!(is_unresolved_title("tt1234567:2:1", "tt1234567:2:1"));
+        assert!(is_unresolved_title("tt1234567 S02E01", "tt1234567:2:1"));
+        assert!(is_unresolved_title("tt1234567", "tt1234567"));
+        assert!(!is_unresolved_title(
+            "Example Series S02E01",
+            "tt1234567:2:1"
+        ));
+        assert!(!is_unresolved_title("Example Movie", "tt1234567"));
+        assert!(!is_unresolved_title("Some name", "kitsu:123:4"));
+        assert!(is_unresolved_title("kitsu:123:4", "kitsu:123:4"));
+    }
+
+    #[test]
+    fn compose_imdb_title_appends_season_and_episode_codes() {
+        assert_eq!(
+            compose_imdb_title("Example Movie", "tt1234567"),
+            "Example Movie"
+        );
+        assert_eq!(
+            compose_imdb_title("Example Series", "tt1234567:2"),
+            "Example Series S02"
+        );
+        assert_eq!(
+            compose_imdb_title("Example Series", "tt1234567:2:1"),
+            "Example Series S02E01"
+        );
+        assert_eq!(
+            compose_imdb_title("Example Series", "tt1234567:11:13"),
+            "Example Series S11E13"
         );
     }
 

@@ -169,6 +169,11 @@ impl SearchService {
         &self.cache
     }
 
+    #[must_use]
+    pub fn resolvers(&self) -> &Resolvers {
+        &self.resolvers
+    }
+
     pub async fn get_profile(&self, token: &str) -> Option<Profile> {
         self.settings
             .read()
