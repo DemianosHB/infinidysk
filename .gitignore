@@ -2,15 +2,6 @@
 # non-project files #
 #####################
 
-bin/
-obj/
-/packages/
-riderModule.iml
-/_ReSharper.Caches/
-*.DotSettings.user
-nuget
-BenchmarkDotNet.Artifacts/
-
 ##############
 # IDE config #
 ##############
@@ -25,37 +16,3 @@ BenchmarkDotNet.Artifacts/
 
 .DS_Store
 /swap/
-
-#################
-# Documentation #
-#################
-
-#######################
-# Local runtime state #
-#######################
-
-db.sqlite
-db.sqlite-shm
-db.sqlite-wal
-metrics.sqlite
-metrics.sqlite-shm
-metrics.sqlite-wal
-
-#######################
-# In-tree native libs #
-#######################
-
-libs/RapidYencSharp/runtimes/
-libs/rapidyenc/build/
-
-# Coverage reports
-frontend/coverage/
-TestResults/
-
-# Mutation testing
-StrykerOutput/
-frontend/reports/
-quality/mutation-reports/
-tests/NzbWebDAV.Tests/stryker-config.ci.json
-mutate-globs.txt
-
