@@ -2,8 +2,8 @@ name: Rust Docker build and push
 
 # Builds the Rust image from rust/Dockerfile (build context: rust/) and pushes it to
 # this fork's own GHCR namespace as a separate package, so it never mixes with the
-# v1 (C#) images in ghcr.io/demianoshb/infinidysk:
-#   ghcr.io/demianoshb/infinidysk-rust
+# v1 (C#) images in ghcr.io/demianoshb/neodysk:
+#   ghcr.io/demianoshb/neodysk-rust
 # Each architecture builds natively on its own runner (amd64 on x86, arm64 on an ARM
 # runner) — no QEMU emulation, which made the combined multi-arch build take over an
 # hour. Each leg pushes its image by digest; a final job assembles the multi-arch
