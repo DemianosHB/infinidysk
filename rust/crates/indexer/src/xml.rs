@@ -7,8 +7,6 @@
 use quick_xml::Reader;
 use quick_xml::events::Event;
 
-use crate::Error;
-
 /// The Newznab feed attribute namespace (`http://www.newznab.com/DTD/2010/feeds/attributes/`).
 pub(crate) const NEWZNAB_NS: &str = "http://www.newznab.com/DTD/2010/feeds/attributes/";
 
@@ -104,9 +102,9 @@ fn split_name(raw: &str) -> (Option<&str>, &str) {
     }
 }
 
-/// Parses the body into the root element. Any XML error or a DOCTYPE is
-/// [`Error::Format`] with no body content in the message.
-pub(crate) fn parse(body: &[u8]) -> Result<Element, Error> {
+/// Parses the body into the root element. Any XML error or a DOCTYPE fails with the
+/// byte offset of the error in the body; no body content is ever included.
+pub(crate) fn parse(body: &[u8]) -> Result<Element, u64> {
     let mut reader = Reader::from_reader(body);
     let mut stack: Vec<Element> = Vec::new();
     let mut frames: Vec<Bindings> = Vec::new();
@@ -115,7 +113,7 @@ pub(crate) fn parse(body: &[u8]) -> Result<Element, Error> {
     loop {
         let event = reader
             .read_event_into(&mut buf)
-            .map_err(|_| Error::Format)?;
+            .map_err(|_| reader.error_position())?;
         match event {
             Event::Start(e) => {
                 let qname = e.name();
@@ -132,12 +130,12 @@ pub(crate) fn parse(body: &[u8]) -> Result<Element, Error> {
                 };
                 let mut bindings: Bindings = Vec::new();
                 for attr in e.attributes() {
-                    let attr = attr.map_err(|_| Error::Format)?;
+                    let attr = attr.map_err(|_| reader.error_position())?;
                     let key: &str = attr.key.as_ref();
                     let key = key.to_owned();
                     let value = attr
                         .normalized_value(quick_xml::XmlVersion::Implicit1_0)
-                        .map_err(|_| Error::Format)?
+                        .map_err(|_| reader.error_position())?
                         .into_owned();
                     if key == "xmlns" {
                         bindings.push((None, value));
@@ -164,12 +162,12 @@ pub(crate) fn parse(body: &[u8]) -> Result<Element, Error> {
                     text: String::new(),
                 };
                 for attr in e.attributes() {
-                    let attr = attr.map_err(|_| Error::Format)?;
+                    let attr = attr.map_err(|_| reader.error_position())?;
                     let key: &str = attr.key.as_ref();
                     let key = key.to_owned();
                     let value = attr
                         .normalized_value(quick_xml::XmlVersion::Implicit1_0)
-                        .map_err(|_| Error::Format)?
+                        .map_err(|_| reader.error_position())?
                         .into_owned();
                     if key == "xmlns" || key.starts_with("xmlns:") {
                         // bindings on an empty element do not leak to siblings
@@ -207,10 +205,10 @@ pub(crate) fn parse(body: &[u8]) -> Result<Element, Error> {
             Event::Decl(_) | Event::Comment(_) | Event::PI(_) => {}
             // A DOCTYPE or an unresolved entity reference: with DTDs prohibited both are
             // format errors and no external resolver is ever touched.
-            Event::DocType(_) | Event::GeneralRef(_) => return Err(Error::Format),
+            Event::DocType(_) | Event::GeneralRef(_) => return Err(reader.buffer_position()),
             Event::Eof => break,
         }
         buf.clear();
     }
-    root.ok_or(Error::Format)
+    root.ok_or(body.len() as u64)
 }

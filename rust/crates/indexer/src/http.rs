@@ -96,6 +96,31 @@ pub async fn get(
     }
 }
 
+/// Sanitized Content-Type media type for error messages. A malicious server could
+/// reflect the API key into a header value, so anything outside a small token
+/// allowlist is reported as `unknown`.
+pub fn safe_media_type(headers: &reqwest::header::HeaderMap) -> String {
+    let Some(raw) = headers.get(reqwest::header::CONTENT_TYPE) else {
+        return "none".to_owned();
+    };
+    let Ok(raw) = raw.to_str() else {
+        return "unknown".to_owned();
+    };
+    let media = raw.split(';').next().unwrap_or("").trim();
+    if media.is_empty() {
+        return "none".to_owned();
+    }
+    if media.len() <= 100
+        && media
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'+' | b'/'))
+    {
+        media.to_owned()
+    } else {
+        "unknown".to_owned()
+    }
+}
+
 /// Bounded body read: a declared Content-Length above `max` rejects before the stream is
 /// read; otherwise bytes are counted and the read rejects as soon as `max` is exceeded
 /// (without waiting for EOF).

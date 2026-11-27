@@ -112,8 +112,11 @@ async fn fetch_json(
             }
             return Err(Error::Status(status));
         }
+        let status_code = status.as_u16();
+        let content_type = http::safe_media_type(resp.headers());
         let body = http::read_bounded(resp, max_bytes).await?;
-        serde_json::from_slice(&body).map_err(|_| Error::Format)
+        serde_json::from_slice(&body)
+            .map_err(|_| Error::format(status_code, &content_type, body.len(), 0))
     })
     .await
     .ok()
@@ -139,8 +142,11 @@ async fn fetch_json_stream(
         if !resp.status().is_success() {
             return Err(Error::Status(resp.status()));
         }
+        let status_code = resp.status().as_u16();
+        let content_type = http::safe_media_type(resp.headers());
         let body = http::read_bounded(resp, DATASET_MAX_BYTES).await?;
-        serde_json::from_slice(&body).map_err(|_| Error::Format)
+        serde_json::from_slice(&body)
+            .map_err(|_| Error::format(status_code, &content_type, body.len(), 0))
     })
     .await
     .ok()
