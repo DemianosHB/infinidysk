@@ -1148,19 +1148,18 @@ impl Watchtower {
                         updated.provenance = write_strings(&prov);
                         changed = true;
                     }
-                    if let Some(t) = r.title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
-                        if is_unresolved_title(&row.title, &row.content_id) {
-                            updated.title = t.to_owned();
-                            changed = true;
-                        }
-                    } else if is_unresolved_title(&row.title, &row.content_id) {
-                        if let Some(resolved) = self
+                    if let Some(t) = r.title.as_deref().map(str::trim).filter(|t| !t.is_empty())
+                        && is_unresolved_title(&row.title, &row.content_id)
+                    {
+                        updated.title = t.to_owned();
+                        changed = true;
+                    } else if is_unresolved_title(&row.title, &row.content_id)
+                        && let Some(resolved) = self
                             .resolve_content_title(&row.r#type, &row.content_id, ct)
                             .await
-                        {
-                            updated.title = resolved;
-                            changed = true;
-                        }
+                    {
+                        updated.title = resolved;
+                        changed = true;
                     }
 
                     if row.state != STATE_EXPANDER
@@ -1287,8 +1286,9 @@ impl Watchtower {
                 break;
             }
             let scopes = effective_scopes(&expander, &scope_by_source, &global_scope);
+            self.backfill_title(&mut expander, ct).await;
             if !scopes.is_empty()
-                && let Err(e) = self.expand_one(&mut expander, &scopes, now, ct).await
+                && let Err(e) = self.expand_one(&expander, &scopes, now, ct).await
             {
                 debug!(error = %e, key = %expander.key, "watchtower: expand failed");
             }
@@ -1302,13 +1302,12 @@ impl Watchtower {
 
     async fn expand_one(
         self: &Arc<Self>,
-        expander: &mut WantedItemRow,
+        expander: &WantedItemRow,
         scopes: &[String],
         now: i64,
         ct: &CancellationToken,
     ) -> Result<(), String> {
         let tag = expander_tag(&expander.key);
-        self.backfill_title(expander, ct).await;
         let Some(desired) = self.build_desired(expander, scopes, now, ct).await? else {
             return Ok(());
         };
@@ -3200,14 +3199,16 @@ async fn add_item(
             updated.provenance = write_strings(&prov);
             changed = true;
         }
-        if is_unresolved_title(&updated.title, &updated.content_id) {
-            if let Some(resolved) = state
+        let resolved_title = if is_unresolved_title(&updated.title, &updated.content_id) {
+            state
                 .resolve_content_title(&updated.r#type, &updated.content_id, ct)
                 .await
-            {
-                updated.title = resolved;
-                changed = true;
-            }
+        } else {
+            None
+        };
+        if let Some(resolved) = resolved_title {
+            updated.title = resolved;
+            changed = true;
         }
         if changed {
             updated.updated_at = now;
