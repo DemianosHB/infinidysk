@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::extract::{Path, Query, Request, State};
-use axum::http::{HeaderMap, StatusCode, Uri, header};
+use axum::http::{Extensions, HeaderMap, StatusCode, Uri, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -147,15 +147,17 @@ impl Search {
     }
 }
 
-/// v1 `ApiKeyValidator`: session cookie / admin key via `Auth::allowed`, or the SAB-style
-/// `apikey` query param / `X-Api-Key` header matching `sab.api_key` or `auth.api_key`.
+/// v1 `ApiKeyValidator`: exempt like the admin routes (`Auth::exempt`), session cookie /
+/// admin key via `Auth::allowed`, or the SAB-style `apikey` query param / `X-Api-Key`
+/// header matching `sab.api_key` or `auth.api_key`.
 pub(crate) async fn api_key_allowed(
     config: &Arc<RwLock<ConfigStore>>,
     auth: &Arc<Auth>,
     headers: &HeaderMap,
+    extensions: &Extensions,
     query: Option<&str>,
 ) -> bool {
-    if auth.allowed(headers).await {
+    if auth.exempt(headers, extensions).await || auth.allowed(headers).await {
         return true;
     }
     let given = headers
@@ -189,8 +191,14 @@ pub(crate) async fn api_key_allowed(
 }
 
 async fn require_api_key(State(state): State<Arc<Search>>, req: Request, next: Next) -> Response {
-    let allowed =
-        api_key_allowed(&state.config, &state.auth, req.headers(), req.uri().query()).await;
+    let allowed = api_key_allowed(
+        &state.config,
+        &state.auth,
+        req.headers(),
+        req.extensions(),
+        req.uri().query(),
+    )
+    .await;
     if allowed {
         return next.run(req).await;
     }

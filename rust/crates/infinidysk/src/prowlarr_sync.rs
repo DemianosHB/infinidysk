@@ -79,8 +79,14 @@ async fn require_api_key(
     req: Request,
     next: Next,
 ) -> Response {
-    let allowed =
-        api_key_allowed(&state.config, &state.auth, req.headers(), req.uri().query()).await;
+    let allowed = api_key_allowed(
+        &state.config,
+        &state.auth,
+        req.headers(),
+        req.extensions(),
+        req.uri().query(),
+    )
+    .await;
     if allowed {
         return next.run(req).await;
     }
