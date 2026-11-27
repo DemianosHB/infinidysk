@@ -21,11 +21,10 @@ CREATE TABLE IF NOT EXISTS warden_entries (
     backbones TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (source_id, fp)
 );
+-- The 'local' source row is seeded at runtime (Db::warden_ensure_local_source),
+-- not here: a freshly migrated database must stay row-free for the transfer check.
 CREATE INDEX IF NOT EXISTS ix_warden_fp ON warden_entries(fp);
 CREATE INDEX IF NOT EXISTS ix_warden_dead_at ON warden_entries(dead_at);
-INSERT INTO warden_sources (id, kind, name, url, enabled, trust, refresh_hours)
-VALUES ('local', 'local', 'My list', NULL, TRUE, 'full', 24)
-ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS watchdog_entries (
     id BIGSERIAL PRIMARY KEY,

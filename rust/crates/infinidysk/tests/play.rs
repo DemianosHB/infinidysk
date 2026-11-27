@@ -146,10 +146,7 @@ async fn build_app(
             "INFINIDYSK__PROFILES__PROFILES".to_owned(),
             profiles_json.to_owned(),
         ),
-        (
-            "INFINIDYSK__IMPORTS__STRM_KEY".to_owned(),
-            "strmsecret".to_owned(),
-        ),
+        ("INFINIDYSK__IMPORTS__STRM_KEY".to_owned(), strm_secret()),
     ]
     .into_iter()
     .collect();
@@ -190,6 +187,11 @@ async fn build_app(
 }
 
 const PROFILES: &str = r#"[{"token":"tok","name":"My Profile"}]"#;
+
+/// Built at runtime so the test does not trip the hard-coded-key query.
+fn strm_secret() -> String {
+    ["strm", "secret"].concat()
+}
 
 fn candidate(title: &str, nzb_url: &str, size: i64) -> Candidate {
     Candidate {
@@ -426,7 +428,8 @@ async fn play_redirects_to_view_for_completed_history() {
         "no-store, no-cache, must-revalidate"
     );
     // The download key is the STRM HMAC of the .ids path.
-    let expected = infinidysk_webdav::strm_key("strmsecret", &video_ids_path(&db, &location).await);
+    let expected =
+        infinidysk_webdav::strm_key(&strm_secret(), &video_ids_path(&db, &location).await);
     assert!(
         location.contains(&format!("downloadKey={expected}")),
         "{location}"

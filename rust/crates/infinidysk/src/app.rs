@@ -630,6 +630,10 @@ pub async fn serve(
         Sab::new(Arc::clone(&queue), Arc::clone(&config)).context("building the NZB fetcher")?;
     // Phase 3: Warden dead-list + preflight orchestrator, wired as search hooks.
     let warden = crate::warden::build(db.clone(), Arc::clone(&config), Arc::clone(&auth));
+    // v1 seeds the 'local' warden source at store init, not in a migration.
+    if let Err(e) = db.warden_ensure_local_source().await {
+        warn!(error = %e, "warden: seeding the local source failed");
+    }
     let warden_task = tokio::spawn({
         let warden = Arc::clone(&warden);
         let cancel = cancel.clone();

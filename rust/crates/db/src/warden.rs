@@ -137,6 +137,22 @@ impl Db {
         ))
     }
 
+    /// v1 `WardenStore` schema bootstrap: seeds the `local` source row at runtime.
+    /// Deliberately not part of the migration so a freshly migrated database stays
+    /// row-free (the transfer check asserts that).
+    pub async fn warden_ensure_local_source(&self) -> Result<(), Error> {
+        on!(self, pool => {
+            sqlx::query(
+                "INSERT INTO warden_sources (id, kind, name, url, enabled, trust, refresh_hours) \
+                 VALUES ('local', 'local', 'My list', NULL, TRUE, 'full', 24) \
+                 ON CONFLICT (id) DO NOTHING",
+            )
+            .execute(pool)
+            .await?;
+            Ok::<_, Error>(())
+        })
+    }
+
     pub async fn warden_get_sources(&self) -> Result<Vec<WardenSource>, Error> {
         Ok(on!(
             self,
