@@ -30,7 +30,9 @@ pub use client::NewznabClient;
 pub use prowlarr::{ProwlarrClient, ProwlarrIndexer, ProwlarrSystemStatus};
 
 /// Errors of indexer requests. Messages are controlled and never embed the request URL,
-/// the API key, or response body excerpts (the URL query carries the API key).
+/// the API key, or response body excerpts (the URL query carries the API key). Safe
+/// response metadata (HTTP status, sanitized content-type, byte count, parse offset)
+/// may be included so failures stay diagnosable from logs and the UI.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("The indexer base URL is not a valid absolute URL.")]
@@ -54,8 +56,16 @@ pub enum Error {
         max_bytes: u64,
         declared_bytes: Option<u64>,
     },
-    #[error("Indexer returned invalid XML.")]
-    Format,
+    /// Malformed XML or a prohibited DOCTYPE. Carries only safe response metadata.
+    #[error(
+        "Indexer returned invalid XML (HTTP {status}, content-type {content_type}, {body_bytes} bytes, XML error at byte offset {offset})."
+    )]
+    Format {
+        status: u16,
+        content_type: String,
+        body_bytes: usize,
+        offset: u64,
+    },
     /// Newznab `<error code="…" description="…"/>` root element: `"[code] description"`.
     #[error("{0}")]
     Indexer(String),
@@ -80,4 +90,17 @@ pub enum Error {
         base_url: String,
         secs: u64,
     },
+}
+
+impl Error {
+    /// Builds [`Error::Format`] from safe response metadata only: never the request
+    /// URL, the API key, or body content.
+    pub fn format(status: u16, content_type: &str, body_bytes: usize, offset: u64) -> Self {
+        Self::Format {
+            status,
+            content_type: content_type.to_owned(),
+            body_bytes,
+            offset,
+        }
+    }
 }

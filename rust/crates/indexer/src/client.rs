@@ -86,8 +86,11 @@ impl NewznabClient {
             if !resp.status().is_success() {
                 return Ok(false);
             }
+            let status = resp.status().as_u16();
+            let content_type = http::safe_media_type(resp.headers());
             let body = http::read_bounded(resp, self.max_response_bytes).await?;
-            let root = xml::parse(&body)?;
+            let root = xml::parse(&body)
+                .map_err(|offset| Error::format(status, &content_type, body.len(), offset))?;
             Ok(root.has_descendant_named_ci("caps"))
         })
         .await
@@ -122,8 +125,11 @@ impl NewznabClient {
                 Some(s) => Error::Status(s),
                 None => Error::Transport,
             })?;
+            let status = resp.status().as_u16();
+            let content_type = http::safe_media_type(resp.headers());
             let body = http::read_bounded(resp, self.max_response_bytes).await?;
-            let root = xml::parse(&body)?;
+            let root = xml::parse(&body)
+                .map_err(|offset| Error::format(status, &content_type, body.len(), offset))?;
             if root.ns.is_none() && root.local == "error" {
                 let code = root.attr("code");
                 let desc = root

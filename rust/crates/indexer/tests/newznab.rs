@@ -329,13 +329,71 @@ async fn malformed_xml_is_controlled_format_error() {
         .await
         .unwrap_err();
 
-    let Error::Format = &err else {
+    let Error::Format { .. } = &err else {
         panic!("expected Format, got {err:?}");
     };
-    assert_eq!(err.to_string(), "Indexer returned invalid XML.");
-    assert!(!err.to_string().contains("<item>"));
+    let msg = err.to_string();
+    assert!(
+        msg.starts_with("Indexer returned invalid XML (HTTP 200, content-type none, "),
+        "{msg}"
+    );
+    assert!(msg.contains("XML error at byte offset "), "{msg}");
+    assert!(!msg.contains("<item>"));
     assert!(!format!("{err:?}").contains(API_KEY));
-    assert!(!err.to_string().contains(BODY_MARKER));
+    assert!(!msg.contains(BODY_MARKER));
+}
+
+#[tokio::test]
+async fn html_response_reports_content_type_without_leaking_body() {
+    // The Prowlarr failure mode: a 200 answer that is the web UI/SPA shell or a login
+    // page instead of Newznab XML. The content-type makes that visible in logs/UI.
+    let html = format!("<!DOCTYPE html><html><body>{BODY_MARKER}</body></html>").into_bytes();
+    let reply = Reply {
+        content_type: Some("text/html".to_owned()),
+        ..Reply::ok(html)
+    };
+    let (addr, _requests) = serve(vec![reply]).await;
+    let client = client_for(addr, 4096);
+
+    let err = client
+        .search("query", 100, &CancellationToken::new())
+        .await
+        .unwrap_err();
+
+    let Error::Format { content_type, .. } = &err else {
+        panic!("expected Format, got {err:?}");
+    };
+    assert_eq!(content_type, "text/html");
+    let msg = err.to_string();
+    assert!(
+        msg.starts_with("Indexer returned invalid XML (HTTP 200, content-type text/html, "),
+        "{msg}"
+    );
+    assert!(!msg.contains(BODY_MARKER));
+    assert!(!msg.contains(API_KEY));
+    assert!(!format!("{err:?}").contains(API_KEY));
+}
+
+#[tokio::test]
+async fn content_type_reflecting_key_is_sanitized_to_unknown() {
+    let reply = Reply {
+        content_type: Some(format!("text/{API_KEY}")),
+        ..Reply::ok(b"not xml at all".to_vec())
+    };
+    let (addr, _requests) = serve(vec![reply]).await;
+    let client = client_for(addr, 4096);
+
+    let err = client
+        .search("query", 100, &CancellationToken::new())
+        .await
+        .unwrap_err();
+
+    let Error::Format { content_type, .. } = &err else {
+        panic!("expected Format, got {err:?}");
+    };
+    assert_eq!(content_type, "unknown");
+    assert!(!err.to_string().contains(API_KEY));
+    assert!(!format!("{err:?}").contains(API_KEY));
 }
 
 #[tokio::test]
@@ -370,9 +428,13 @@ async fn doctype_is_format_error_without_resolver_access() {
         .await
         .unwrap_err();
 
-    assert!(matches!(err, Error::Format), "{err:?}");
-    assert_eq!(err.to_string(), "Indexer returned invalid XML.");
-    assert!(!err.to_string().contains("127.0.0.1"));
+    assert!(matches!(err, Error::Format { .. }), "{err:?}");
+    let msg = err.to_string();
+    assert!(
+        msg.starts_with("Indexer returned invalid XML (HTTP 200, content-type none, "),
+        "{msg}"
+    );
+    assert!(!msg.contains("127.0.0.1"));
 }
 
 #[tokio::test]

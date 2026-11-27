@@ -372,8 +372,12 @@ async fn search_indexers(
                                 other,
                                 infinidysk_indexer::Error::Status(_)
                                     | infinidysk_indexer::Error::TooLarge { .. }
-                                    | infinidysk_indexer::Error::Format
+                                    | infinidysk_indexer::Error::Format { .. }
                             ) {
+                                // Known failure: one human-friendly warning with the
+                                // controlled reason, no backtrace (the message carries
+                                // safe response metadata but never URL/key/body).
+                                tracing::warn!(reason = %other, indexer = %x.name, "Indexer search failed.");
                                 other.to_string()
                             } else {
                                 tracing::warn!(reason = %other, indexer = %x.name, "Indexer search failed unexpectedly.");

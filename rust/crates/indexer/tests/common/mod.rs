@@ -23,6 +23,7 @@ pub struct RecordedRequest {
 pub struct Reply {
     pub status: &'static str,
     pub content_length: Option<usize>,
+    pub content_type: Option<String>,
     pub chunked: bool,
     pub body: Vec<u8>,
     pub send_body: bool,
@@ -37,6 +38,7 @@ impl Reply {
         Self {
             status: "200 OK",
             content_length: Some(body.len()),
+            content_type: None,
             chunked: false,
             body,
             send_body: true,
@@ -116,6 +118,9 @@ pub async fn serve(replies: Vec<Reply>) -> (SocketAddr, Requests) {
                 let mut out = format!("HTTP/1.1 {}\r\n", reply.status);
                 if let Some(cl) = reply.content_length {
                     let _ = write!(out, "content-length: {cl}\r\n");
+                }
+                if let Some(ct) = &reply.content_type {
+                    let _ = write!(out, "content-type: {ct}\r\n");
                 }
                 if reply.chunked {
                     out.push_str("transfer-encoding: chunked\r\n");
