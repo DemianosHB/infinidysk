@@ -12,7 +12,7 @@ use std::path::{Component, Path, PathBuf};
 use infinidysk_core::ItemId;
 use nix::errno::Errno;
 use nix::fcntl::{AT_FDCWD, AtFlags, OFlag, openat, readlinkat, renameat};
-use nix::sys::stat::{FileStat, Mode, SFlag, fstat, fstatat, mkdirat};
+use nix::sys::stat::{FileStat, Mode, SFlag, fchmod, fstat, fstatat, mkdirat};
 use nix::unistd::{Gid, Uid, UnlinkatFlags, fchown, fchownat, fsync, symlinkat, unlinkat};
 
 const DIR: OFlag = OFlag::O_RDONLY
@@ -57,22 +57,32 @@ impl Root {
     }
 
     /// Writes `bytes` to `path` through a private temporary file, durably, creating its
-    /// folders.
-    pub fn write(&self, path: &Path, bytes: &[u8], owner: (u32, u32)) -> io::Result<()> {
+    /// folders. Files are requested `0666` and folders `0777`, so the process umask
+    /// decides the mode (as 1.x did); `perms` overrides that with an exact chmod.
+    pub fn write(
+        &self,
+        path: &Path,
+        bytes: &[u8],
+        owner: (u32, u32),
+        perms: Option<Mode>,
+    ) -> io::Result<()> {
         let (dirs, name) = self.split(path)?;
-        let chain = self.dirs(&dirs, Some(owner))?;
+        let (chain, made) = self.dirs(&dirs, Some(owner))?;
         let dir = last(&chain);
         let tmp = temporary(name);
         let fd = openat(
             dir,
             tmp.as_os_str(),
             OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_EXCL | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
-            Mode::from_bits_truncate(0o644),
+            Mode::from_bits_truncate(0o666),
         )?;
         let written = (|| {
             let mut file = File::from(fd);
             file.write_all(bytes)?;
             file.sync_all()?;
+            if let Some(perms) = perms {
+                fchmod(file.as_fd(), perms)?;
+            }
             own(&file, owner)?;
             renameat(dir, tmp.as_os_str(), dir, name)?;
             io::Result::Ok(())
@@ -81,13 +91,20 @@ impl Root {
             let _ = unlinkat(dir, tmp.as_os_str(), UnlinkatFlags::NoRemoveDir);
         }
         written?;
+        // Only now that the file is in place: a folder mode without the execute bit would
+        // otherwise refuse the writes into it.
+        for &i in &made {
+            if let Some(perms) = perms {
+                fchmod(&chain[i], perms)?;
+            }
+        }
         Ok(fsync(dir)?)
     }
 
     /// Points the symlink `path` at `target` through a temporary link, durably.
     pub fn link(&self, path: &Path, target: &str, (uid, gid): (u32, u32)) -> io::Result<()> {
         let (dirs, name) = self.split(path)?;
-        let chain = self.dirs(&dirs, None)?;
+        let (chain, _) = self.dirs(&dirs, None)?;
         let dir = last(&chain);
         let tmp = temporary(name);
         symlinkat(target, dir, tmp.as_os_str())?;
@@ -116,7 +133,7 @@ impl Root {
     /// first `keep` folders below the root.
     pub fn remove(&self, path: &Path, keep: usize) -> io::Result<()> {
         let (dirs, name) = self.split(path)?;
-        let chain = self.dirs(&dirs, None)?;
+        let (chain, _) = self.dirs(&dirs, None)?;
         match unlinkat(last(&chain), name, UnlinkatFlags::NoRemoveDir) {
             Ok(()) | Err(Errno::ENOENT) => {}
             Err(error) => return Err(error.into()),
@@ -134,7 +151,7 @@ impl Root {
         let (dirs, name) = self.split(path)?;
         let at = match self
             .dirs(&dirs, None)
-            .and_then(|chain| Ok(fstatat(last(&chain), name, AtFlags::AT_SYMLINK_NOFOLLOW)?))
+            .and_then(|(chain, _)| Ok(fstatat(last(&chain), name, AtFlags::AT_SYMLINK_NOFOLLOW)?))
         {
             Ok(at) => at,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -150,7 +167,7 @@ impl Root {
     /// The target of the symlink at `path`.
     pub fn read_link(&self, path: &Path) -> io::Result<OsString> {
         let (dirs, name) = self.split(path)?;
-        let chain = self.dirs(&dirs, None)?;
+        let (chain, _) = self.dirs(&dirs, None)?;
         Ok(readlinkat(last(&chain), name)?)
     }
 
@@ -158,7 +175,7 @@ impl Root {
     /// The file at `path`, refused as `InvalidData` when longer than `max` bytes.
     pub fn read_to_string(&self, path: &Path, max: u64) -> io::Result<String> {
         let (dirs, name) = self.split(path)?;
-        let chain = self.dirs(&dirs, None)?;
+        let (chain, _) = self.dirs(&dirs, None)?;
         let fd = openat(
             last(&chain),
             name,
@@ -199,10 +216,17 @@ impl Root {
         Ok((names, name))
     }
 
-    /// The root and each of `dirs` in turn, opened without following a symlink. With
-    /// `create`, missing folders are made and given to that owner.
-    fn dirs(&self, dirs: &[&OsStr], create: Option<(u32, u32)>) -> io::Result<Vec<OwnedFd>> {
+    /// The root and each of `dirs` in turn, opened without following a symlink, plus the
+    /// indices in the chain of the folders this made. With `create`, missing folders are
+    /// made `0777` (the umask decides) and given to that owner; the caller chmods the made
+    /// ones to `perms` once it is done writing below them.
+    fn dirs(
+        &self,
+        dirs: &[&OsStr],
+        create: Option<(u32, u32)>,
+    ) -> io::Result<(Vec<OwnedFd>, Vec<usize>)> {
         let mut chain = vec![self.fd.try_clone()?];
+        let mut made: Vec<usize> = Vec::new();
         let mut at = self.path.clone();
         for &name in dirs {
             at.push(name);
@@ -211,17 +235,20 @@ impl Root {
             let fd = match (openat(parent, name, flags, Mode::empty()), create) {
                 (Ok(fd), _) => fd,
                 (Err(Errno::ENOENT), Some(owner)) => {
-                    let made = match mkdirat(parent, name, Mode::from_bits_truncate(0o755)) {
+                    let created = match mkdirat(parent, name, Mode::from_bits_truncate(0o777)) {
                         Ok(()) => true,
                         Err(Errno::EEXIST) => false,
                         Err(error) => return Err(error.into()),
                     };
                     let fd = openat(parent, name, flags, Mode::empty())
                         .map_err(|e| self.refused(e, parent, name, &at))?;
-                    if made && let Err(error) = own(&fd, owner) {
+                    if created && let Err(error) = own(&fd, owner) {
                         // Made again, and owned, by the next attempt.
                         let _ = unlinkat(parent, name, UnlinkatFlags::RemoveDir);
                         return Err(error);
+                    }
+                    if created {
+                        made.push(chain.len());
                     }
                     fd
                 }
@@ -229,7 +256,7 @@ impl Root {
             };
             chain.push(fd);
         }
-        Ok(chain)
+        Ok((chain, made))
     }
 
     /// `error` from opening the folder `name` at `at`, named plainly when it is a symlink.
@@ -296,7 +323,7 @@ mod tests {
         let root = Root::open(&tmp.join("root")).unwrap();
 
         let error = root
-            .write(&tmp.join("root/sub/a.strm"), b"x", owner)
+            .write(&tmp.join("root/sub/a.strm"), b"x", owner, None)
             .unwrap_err();
         assert!(error.to_string().contains("is a symlink"), "{error}");
         assert!(root.link(&tmp.join("root/sub/a"), "t", owner).is_err());
@@ -319,8 +346,40 @@ mod tests {
         };
         symlink(tmp.join("outside"), tmp.join("link")).unwrap();
         let root = Root::open(&tmp.join("link")).unwrap();
-        root.write(&tmp.join("link/a/b.strm"), b"x", owner).unwrap();
+        root.write(&tmp.join("link/a/b.strm"), b"x", owner, None)
+            .unwrap();
         assert_eq!(fs::read(tmp.join("outside/a/b.strm")).unwrap(), b"x");
+        fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn an_explicit_mode_chmods_the_file_and_the_folders_made_for_it() {
+        let tmp = scratch();
+        let owner = {
+            let m = fs::metadata(&tmp).unwrap();
+            (m.uid(), m.gid())
+        };
+        let root = Root::open(&tmp.join("root")).unwrap();
+        // A folder-suitable mode (with the execute bit), as SABnzbd's example `2775`.
+        root.write(
+            &tmp.join("root/cat/job/a.strm"),
+            b"x",
+            owner,
+            Some(Mode::from_bits_truncate(0o2775)),
+        )
+        .unwrap();
+        for path in [
+            tmp.join("root/cat/job/a.strm"),
+            tmp.join("root/cat/job"),
+            tmp.join("root/cat"),
+        ] {
+            assert_eq!(
+                fs::metadata(&path).unwrap().mode() & 0o7777,
+                0o2775,
+                "{}",
+                path.display()
+            );
+        }
         fs::remove_dir_all(&tmp).unwrap();
     }
 
@@ -351,7 +410,8 @@ mod tests {
         fs::write(&victim, b"keep").unwrap();
         symlink(&victim, tmp.join("root/.a.strm.partial")).unwrap();
         let root = Root::open(&tmp.join("root")).unwrap();
-        root.write(&tmp.join("root/a.strm"), b"new", owner).unwrap();
+        root.write(&tmp.join("root/a.strm"), b"new", owner, None)
+            .unwrap();
         assert_eq!(fs::read(&victim).unwrap(), b"keep");
         assert_eq!(fs::read(tmp.join("root/a.strm")).unwrap(), b"new");
         fs::remove_dir_all(&tmp).unwrap();

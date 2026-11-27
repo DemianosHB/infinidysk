@@ -3,6 +3,7 @@ use infinidysk::config::{
     Settings,
 };
 use infinidysk_db::Db;
+use nix::sys::stat::Mode;
 
 /// `ConfigStore::load`/`save` publish the process-wide outbound proxy; serialize the
 /// tests so those publishes cannot race each other (the socks5 test asserts on the
@@ -895,4 +896,33 @@ async fn read_ahead_repair_env_overlay_applies_and_out_of_range_resets() {
     )];
     let store = ConfigStore::load(db, env).await.expect("load");
     assert_eq!(store.settings().repair.readahead_window_seconds, 45);
+}
+
+#[test]
+fn handoff_permissions_accept_octal_modes_and_reject_the_rest() {
+    let path = |perms: Option<&str>| {
+        let mut s = Settings::default();
+        s.imports.handoff_permissions = perms.map(str::to_owned);
+        s.validate().err().and_then(|e| e.path().map(str::to_owned))
+    };
+    assert_eq!(path(None), None);
+    for good in ["664", " 2775 ", "777", "0644"] {
+        let mut s = Settings::default();
+        s.imports.handoff_permissions = Some(good.to_owned());
+        s.validate().expect("valid");
+        assert_eq!(
+            s.imports.handoff_mode(),
+            Some(Mode::from_bits_truncate(
+                nix::libc::mode_t::from_str_radix(good.trim(), 8).unwrap()
+            )),
+            "{good}"
+        );
+    }
+    for bad in ["888", "12345", "-1", "abc", ""] {
+        assert_eq!(
+            path(Some(bad)).as_deref(),
+            Some("imports.handoff_permissions"),
+            "{bad}"
+        );
+    }
 }

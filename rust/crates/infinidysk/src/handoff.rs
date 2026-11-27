@@ -5,7 +5,8 @@
 use std::collections::HashMap;
 use std::fs::{self, DirBuilder};
 use std::io;
-use std::os::unix::fs::{DirBuilderExt as _, MetadataExt as _};
+use std::os::fd::AsFd as _;
+use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -22,6 +23,7 @@ use tracing::{info, warn};
 
 use crate::config::{ImportStrategy, Settings};
 use crate::confined::{Entry, Root};
+use nix::sys::stat::{Mode, fchmod};
 
 /// Release subtitles written beside the STRMs; Arrs import them with the video.
 const SUBTITLES: [&str; 7] = ["srt", "ass", "ssa", "vtt", "sub", "idx", "sup"];
@@ -38,6 +40,7 @@ struct Config {
     public_url: String,
     strm_key: String,
     mount_dir: String,
+    handoff_perms: Option<Mode>,
 }
 
 impl Config {
@@ -48,6 +51,7 @@ impl Config {
             public_url: s.network.public_url.clone(),
             strm_key: s.imports.strm_key.0.clone(),
             mount_dir: s.mount.dir.trim_end_matches('/').to_owned(),
+            handoff_perms: s.imports.handoff_mode(),
         }
     }
 
@@ -100,12 +104,13 @@ impl Writer {
         } else {
             &self.probing
         };
+        let perms = self.config().handoff_perms;
         bounded(
             gate,
             FS_TIMEOUT,
             move |_| {
                 let probed = (|| -> io::Result<()> {
-                    make_dir(&dir, owner)?;
+                    make_dir(&dir, owner, perms)?;
                     let probe = dir.join(format!(".infinidysk-probe-{}", ItemId::new()));
                     fs::write(&probe, b"")?;
                     fs::remove_file(&probe)
@@ -179,12 +184,13 @@ impl Writer {
             &self.busy,
             FS_TIMEOUT,
             move |progress| {
-                let root = make_dir(&root, owner)
+                let perms = c.handoff_perms;
+                let root = make_dir(&root, owner, perms)
                     .and_then(|()| Root::open(&root))
                     .map_err(|e| format!("{}: {e}", root.display()))?;
                 let mut done: Vec<Handoff> = Vec::with_capacity(writes.len());
                 for (target, bytes, handoff) in writes {
-                    if let Err(error) = root.write(&target, &bytes, owner) {
+                    if let Err(error) = root.write(&target, &bytes, owner, perms) {
                         for f in &done {
                             remove(&root, Path::new(&f.path));
                         }
@@ -399,17 +405,23 @@ fn strm_root(c: &Config) -> PathBuf {
     })
 }
 
-/// Creates `dir` and its missing parents. Only for a configured folder; folders below it
-/// are made by [`Root::write`].
-fn make_dir(dir: &Path, owner: (u32, u32)) -> io::Result<()> {
+/// Creates `dir` and its missing parents, `0777` so the umask decides (as 1.x did);
+/// `perms` chmods only `dir` itself (the configured folder) to exactly that mode — its
+/// parents keep the umask mode. Folders below it are made by [`Root::write`].
+fn make_dir(dir: &Path, owner: (u32, u32), perms: Option<Mode>) -> io::Result<()> {
     if dir.is_dir() {
         return Ok(());
     }
     if let Some(parent) = dir.parent() {
-        make_dir(parent, owner)?;
+        make_dir(parent, owner, None)?;
     }
-    match DirBuilder::new().mode(0o755).create(dir) {
-        Ok(()) => own(dir, owner),
+    match DirBuilder::new().create(dir) {
+        Ok(()) => {
+            if let Some(perms) = perms {
+                fchmod(fs::File::open(dir)?.as_fd(), perms)?;
+            }
+            own(dir, owner)
+        }
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
         Err(error) => Err(error),
     }
@@ -885,6 +897,7 @@ mod tests {
             public_url: "https://media.example/dysk".to_owned(),
             strm_key: "k".to_owned(),
             mount_dir: String::new(),
+            handoff_perms: None,
         };
         assert_eq!(strm_item(&c.strm_url(id, "mkv")), Some(id));
         let other_host = format!("http://old:3000/view/{}?downloadKey=x\n", id.ids_path());

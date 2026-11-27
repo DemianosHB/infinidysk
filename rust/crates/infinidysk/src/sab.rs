@@ -222,6 +222,8 @@ struct Ctx {
     completed_dir: String,
     /// `/completed-symlinks` in the mount, where jobs without a stored path were handed off.
     links_dir: String,
+    /// SABnzbd's `misc.permissions`: the configured handoff chmod, empty when the umask decides.
+    permissions: String,
 }
 
 impl Ctx {
@@ -237,6 +239,11 @@ impl Ctx {
                 ImportStrategy::Strm => settings.imports.strm_dir.trim_end_matches('/').to_owned(),
             },
             links_dir,
+            permissions: settings
+                .imports
+                .handoff_permissions
+                .clone()
+                .unwrap_or_default(),
         }
     }
 }
@@ -380,6 +387,7 @@ fn get_config(ctx: &Ctx) -> Value {
             "history_retention": "",
             "history_retention_option": "all",
             "history_retention_number": 1,
+            "permissions": ctx.permissions,
         },
         "categories": categories,
         "servers": [],
@@ -820,4 +828,19 @@ async fn retry(state: &Sab, p: &Params) -> Result<Value, Fail> {
 
 async fn retry_one(state: &Sab, id: JobId) -> Result<JobId, Fail> {
     state.queue.retry(id).await.map_err(queue_failed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_config_reports_misc_permissions_like_sabnzbd() {
+        let mut settings = Settings::default();
+        let ctx = Ctx::new(&settings);
+        assert_eq!(get_config(&ctx)["config"]["misc"]["permissions"], "");
+        settings.imports.handoff_permissions = Some("664".to_owned());
+        let ctx = Ctx::new(&settings);
+        assert_eq!(get_config(&ctx)["config"]["misc"]["permissions"], "664");
+    }
 }

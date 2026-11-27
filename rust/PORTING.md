@@ -79,6 +79,14 @@ streamed release errors at all providers, switch to another release during the r
 stream (the swap mechanism lives in the vfs fence/`ReadVersion`/`LiveReader` machinery;
 the candidate knowledge comes from Phase 2/3).
 
+## Upstream 2.x issues fixed in this fork
+
+- [infinidysk#1969](https://github.com/infinidysk/infinidysk/issues/1969) — STRM handoffs
+  are group-writable again: handoff files are created `0666` and folders `0777` so the
+  process umask decides (1.x behavior, instead of the 2.x `0644`/`0755` regression), and
+  the optional `imports.handoff_permissions` (3-4 octal digits, e.g. `"2775"`) chmods them
+  exactly, whatever the umask. SAB clients see it as `misc.permissions` in `get_config`.
+
 ## v1 config key → Rust setting mapping
 
 | v1 key (`NZBDAV_CONFIG__…`) | Rust setting (`INFINIDYSK__…`) |
