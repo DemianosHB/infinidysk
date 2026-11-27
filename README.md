@@ -5,17 +5,17 @@
 > **This repository is a community fork** of [infinidysk/infinidysk](https://github.com/infinidysk/infinidysk). It adds fork features on top of the upstream `v1` line (see [Fork features](#fork-features-demianoshb)) and publishes its own images to `ghcr.io/demianoshb/infinidysk`. Fork releases are tagged `vX.Y.Z-DemianosN`, e.g. [`v1.7.2-Demianos8`](https://github.com/DemianosHB/infinidysk/releases/tag/v1.7.2-Demianos8); pushes to `v1` additionally build the rolling `lang-dev` image.
 
 > [!IMPORTANT] 
-> InfiniDysk is designed as a drop-in replacement and upgrade from `nzbdav-dev/nzbdav v0.6.4`. Follow the [migration guide](https://www.infinidysk.com/getting-started/migration/) before switching an existing installation.
+> NeoDysk is designed as a drop-in replacement and upgrade from `nzbdav-dev/nzbdav v0.6.4`. Follow the [migration guide](https://www.infinidysk.com/getting-started/migration/) before switching an existing installation.
 >
 > Early adopters report **2x network throughput** and **seek times improved by up to 4x** compared with v0.6.4.
 >
 > `ghcr.io/demianoshb/infinidysk:latest`
 
 <p align="center">
-  <img src="docs/assets/logo.png" width="160" alt="InfiniDysk logo" />
+  <img src="docs/assets/logo.png" width="160" alt="NeoDysk logo" />
 </p>
 
-<h1 align="center">InfiniDysk</h1>
+<h1 align="center">NeoDysk</h1>
 
 <p align="center"><strong>The NzbDAV SuperFork</strong></p>
 <p align="center">
@@ -25,7 +25,7 @@
 > [!NOTE]
 > **NzbDAV is now InfiniDysk.** Docs, GitHub, and the Docker image have moved. If you still pull `ghcr.io/nzbdav/nzbdav`, switch to `ghcr.io/infinidysk/infinidysk` (same `/config` and mounts). Read the [rename FAQ](https://www.infinidysk.com/community/renaming-to-infinidysk/).
 
-<img width="1024" height="601" alt="InfiniDysk overview dashboard" src="docs/assets/overview.png" />
+<img width="1024" height="601" alt="NeoDysk overview dashboard" src="docs/assets/overview.png" />
 
 <p align="center">
   <a href="https://github.com/DemianosHB/infinidysk/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/DemianosHB/infinidysk?filter=v1.*" /></a>
@@ -36,7 +36,7 @@
 
 ---
 
-InfiniDysk combines a **WebDAV server** with a **SABnzbd-compatible API**. Sonarr, Radarr, and similar tools can use it as a drop-in download client, while Plex, Emby, Jellyfin, and other WebDAV clients stream content on demand from your Usenet providers.
+NeoDysk combines a **WebDAV server** with a **SABnzbd-compatible API**. Sonarr, Radarr, and similar tools can use it as a drop-in download client, while Plex, Emby, Jellyfin, and other WebDAV clients stream content on demand from your Usenet providers.
 
 Please add feature requests and bug reports for this v1 fork to [its issue tracker](https://github.com/DemianosHB/infinidysk/issues) (upstream tracker: [infinidysk/infinidysk/issues](https://github.com/infinidysk/infinidysk/issues)), or join our [Discord](https://discord.gg/DAya7W6QMa) to chat with us.
 
@@ -129,13 +129,13 @@ services:
 Then run `docker compose up -d`, open `http://localhost:3000`, create your admin account, and configure your Usenet provider and WebDAV credentials under **Settings**.
 
 > [!IMPORTANT]
-> Port `3000` serves plain HTTP. If InfiniDysk will be reachable outside your trusted network, put it behind an HTTPS reverse proxy and do not expose the container port directly to the internet. WebDAV uses Basic authentication, so TLS is essential for remote access. When the proxy runs on the Docker host, bind the port to localhost with `127.0.0.1:3000:3000`.
+> Port `3000` serves plain HTTP. If NeoDysk will be reachable outside your trusted network, put it behind an HTTPS reverse proxy and do not expose the container port directly to the internet. WebDAV uses Basic authentication, so TLS is essential for remote access. When the proxy runs on the Docker host, bind the port to localhost with `127.0.0.1:3000:3000`.
 
 Other supported setup paths:
 
 - **Linux without Docker** — Follow the [prebuilt archive guide](https://www.infinidysk.com/getting-started/prebuilt-archives/) to run the x64 or ARM64 release bundle.
 - **IPv6-only Docker hosts** — The fork image is published to GHCR only; if `ghcr.io` is not reachable over IPv6, use the upstream Docker Hub mirror `infinidysk/infinidysk`.
-- **Batteries-included Arr stack** — Use InfiniDysk as a supported core module in [DUMB](https://dumbarr.com/services/core/nzbdav/).
+- **Batteries-included Arr stack** — Use NeoDysk as a supported core module in [DUMB](https://dumbarr.com/services/core/nzbdav/).
 - **Reverse-proxy sub-path** — Follow the [URL base guide](https://www.infinidysk.com/configuration/url-base/) to build an image for paths such as `/nzbdav`.
 
 ## Documentation
@@ -174,7 +174,7 @@ This repository is v1-only: `v1` is the development line and the target of all p
 
 ## License
 
-InfiniDysk is released under the [MIT License](LICENSE).
+NeoDysk is released under the [MIT License](LICENSE).
 
 > [!NOTE]
-> InfiniDysk is intended for use with legally obtained or public domain content only. The project maintainers do not condone piracy and will not provide support for users suspected of engaging in copyright infringement.
+> NeoDysk is intended for use with legally obtained or public domain content only. The project maintainers do not condone piracy and will not provide support for users suspected of engaging in copyright infringement.

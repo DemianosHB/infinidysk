@@ -8,20 +8,20 @@ web
 
 ## Users
 
-Self-hosted InfiniDysk administrators configuring Usenet streaming for Plex,
+Self-hosted NeoDysk administrators configuring Usenet streaming for Plex,
 Emby, Jellyfin, Radarr, or Sonarr. Operators range from first-time installers to
 existing users revisiting configuration after an upgrade.
 
 ## Product Purpose
 
-InfiniDysk mounts NZB documents as a virtual WebDAV filesystem and streams media
+NeoDysk mounts NZB documents as a virtual WebDAV filesystem and streams media
 directly from Usenet without first storing complete media files. Its admin UI
 must help operators reach a reliable configuration while keeping advanced
 controls available in Settings.
 
 ## Positioning
 
-InfiniDysk combines on-demand Usenet streaming, a SABnzbd-compatible download
+NeoDysk combines on-demand Usenet streaming, a SABnzbd-compatible download
 client API, symlink or STRM import workflows, and operational health and repair
 tooling in one self-hosted product.
 
@@ -31,13 +31,13 @@ The product normally runs as a Docker image with a .NET backend and React Router
 admin UI. Symlink libraries use an rclone WebDAV sidecar and are typically
 consumed by Plex. STRM libraries are typically consumed directly by Emby or
 Jellyfin. Radarr and Sonarr can send downloads through the SAB-compatible API and
-can also be registered with InfiniDysk for monitoring and replacement actions.
+can also be registered with NeoDysk for monitoring and replacement actions.
 
 ## Capabilities and Constraints
 
 - Configuration may be persisted in the operational database or owned by
   authoritative `NZBDAV_CONFIG__...` environment variables.
-- Symlink setup uses rclone VFS caching and disables InfiniDysk segment caching.
+- Symlink setup uses rclone VFS caching and disables NeoDysk segment caching.
 - STRM setup enables segment caching and requires a completed-downloads path and
   a media-server-reachable Base URL.
 - External rclone and Arr services may be tested, but temporary unavailability
@@ -48,7 +48,7 @@ can also be registered with InfiniDysk for monitoring and replacement actions.
 
 ## Brand Commitments
 
-Preserve the InfiniDysk name, existing logo, direct operator-focused voice, and
+Preserve the NeoDysk name, existing logo, direct operator-focused voice, and
 the established daisyUI `night` application language.
 
 ## Evidence on Hand

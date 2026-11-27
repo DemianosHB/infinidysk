@@ -1,6 +1,6 @@
 # Frontend
 
-React Router admin UI for InfiniDysk. Proxies WebDAV and API traffic to the backend.
+React Router admin UI for NeoDysk. Proxies WebDAV and API traffic to the backend.
 
 ```bash
 npm install
