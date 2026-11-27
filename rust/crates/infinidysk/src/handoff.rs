@@ -5,7 +5,8 @@
 use std::collections::HashMap;
 use std::fs::{self, DirBuilder};
 use std::io;
-use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+use std::os::fd::AsFd as _;
+use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -22,7 +23,7 @@ use tracing::{info, warn};
 
 use crate::config::{ImportStrategy, Settings};
 use crate::confined::{Entry, Root};
-use nix::sys::stat::Mode;
+use nix::sys::stat::{Mode, fchmod};
 
 /// Release subtitles written beside the STRMs; Arrs import them with the video.
 const SUBTITLES: [&str; 7] = ["srt", "ass", "ssa", "vtt", "sub", "idx", "sup"];
@@ -50,7 +51,7 @@ impl Config {
             public_url: s.network.public_url.clone(),
             strm_key: s.imports.strm_key.0.clone(),
             mount_dir: s.mount.dir.trim_end_matches('/').to_owned(),
-            handoff_perms: s.imports.handoff_mode().map(Mode::from_bits_truncate),
+            handoff_perms: s.imports.handoff_mode(),
         }
     }
 
@@ -417,7 +418,7 @@ fn make_dir(dir: &Path, owner: (u32, u32), perms: Option<Mode>) -> io::Result<()
     match DirBuilder::new().create(dir) {
         Ok(()) => {
             if let Some(perms) = perms {
-                fs::set_permissions(dir, fs::Permissions::from_mode(perms.bits()))?;
+                fchmod(fs::File::open(dir)?.as_fd(), perms)?;
             }
             own(dir, owner)
         }

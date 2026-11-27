@@ -3,6 +3,7 @@ use infinidysk::config::{
     Settings,
 };
 use infinidysk_db::Db;
+use nix::sys::stat::Mode;
 
 /// `ConfigStore::load`/`save` publish the process-wide outbound proxy; serialize the
 /// tests so those publishes cannot race each other (the socks5 test asserts on the
@@ -911,7 +912,9 @@ fn handoff_permissions_accept_octal_modes_and_reject_the_rest() {
         s.validate().expect("valid");
         assert_eq!(
             s.imports.handoff_mode(),
-            Some(u32::from_str_radix(good.trim(), 8).unwrap()),
+            Some(Mode::from_bits_truncate(
+                nix::libc::mode_t::from_str_radix(good.trim(), 8).unwrap()
+            )),
             "{good}"
         );
     }

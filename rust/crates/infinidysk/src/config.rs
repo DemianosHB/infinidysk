@@ -11,6 +11,7 @@ use infinidysk_db::Db;
 use infinidysk_indexer::models::IndexerConfig;
 use infinidysk_nntp::catalog;
 use infinidysk_search::profile::ProfileConfig;
+use nix::sys::stat::Mode;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use utoipa::ToSchema;
@@ -844,9 +845,12 @@ pub struct Imports {
 
 impl Imports {
     /// [`Self::handoff_permissions`] parsed as an octal mode, `None` when unset or invalid.
+    /// Parsed straight into `mode_t`, which is `u16` on macOS and `u32` elsewhere.
     #[must_use]
-    pub fn handoff_mode(&self) -> Option<u32> {
-        u32::from_str_radix(self.handoff_permissions.as_deref()?.trim(), 8).ok()
+    pub fn handoff_mode(&self) -> Option<Mode> {
+        nix::libc::mode_t::from_str_radix(self.handoff_permissions.as_deref()?.trim(), 8)
+            .ok()
+            .map(Mode::from_bits_truncate)
     }
 }
 
