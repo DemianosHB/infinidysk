@@ -1,0 +1,74 @@
+name: Rust dependency audit
+
+# Checks the third-party crates of the Rust workspace (rust/) for security and
+# freshness:
+#   - audit:    cargo audit against the RustSec advisory database. Fails the run
+#               on any known vulnerability. The accepted advisories from
+#               rust/deny.toml ([advisories].ignore) are ignored here as well.
+#   - outdated: cargo outdated. Reports crates with newer releases but does not
+#               block (continue-on-error). To make freshness a required check,
+#               drop continue-on-error and add --exit-code 1.
+# Triggers on rust/** changes and weekly (Mon 06:00 UTC), so newly published
+# advisories are caught even when no dependency changed. Path-filtered on
+# purpose and NOT a required check, same as rust-ci.yml; run it manually via
+# workflow_dispatch.
+
+on:
+  pull_request:
+    branches: [rust]
+    paths:
+      - "rust/**"
+      - ".github/workflows/rust-deps-audit.yml"
+  push:
+    branches: [rust]
+    paths:
+      - "rust/**"
+      - ".github/workflows/rust-deps-audit.yml"
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-deps-audit-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  audit:
+    name: cargo audit (known vulnerabilities)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain (rust/rust-toolchain.toml)
+        working-directory: rust
+        run: rustup toolchain install
+      - name: Install cargo-audit and cargo-outdated
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-outdated
+      - name: cargo audit
+        working-directory: rust
+        # Same accepted advisories as in rust/deny.toml ([advisories].ignore).
+        run: cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0543
+
+  outdated:
+    name: cargo outdated (newer releases available)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain (rust/rust-toolchain.toml)
+        working-directory: rust
+        run: rustup toolchain install
+      - name: Install cargo-audit and cargo-outdated
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-outdated
+      - name: cargo outdated
+        working-directory: rust
+        run: cargo outdated
