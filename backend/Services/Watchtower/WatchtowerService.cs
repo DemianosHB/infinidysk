@@ -23,6 +23,7 @@ public partial class WatchtowerService(
     PreflightCache preflightCache,
     ListSourceEnumerator enumerator,
     EpisodeEnumerator episodeEnumerator,
+    ImdbTitleResolver titleResolver,
     PreferredOrderStore preferredOrderStore,
     NzbFetchCoalescer nzbFetchCoalescer,
     BenchmarkGate benchmarkGate,
@@ -275,13 +276,16 @@ public partial class WatchtowerService(
         {
             if (!existingByKey.TryGetValue(key, out var row))
             {
+                var newTitle = WtTitles.IsUnresolvedTitle(r.Title, r.ContentId)
+                    ? (await WtTitles.ResolveAsync(titleResolver, r.Type, r.ContentId, ct).ConfigureAwait(false)) ?? r.ContentId
+                    : r.Title!;
                 ctx.WantedItems.Add(new WantedItem
                 {
                     Id = Guid.NewGuid(),
                     Key = key,
                     Type = r.Type,
                     ContentId = r.ContentId,
-                    Title = string.IsNullOrWhiteSpace(r.Title) ? r.ContentId : r.Title!,
+                    Title = newTitle,
                     State = WantedItem.IsBareSeries(r.Type, r.ContentId) ? WantedItem.StateExpander : WantedItem.StateScouting,
                     Provenance = WtJson.WriteStrings(new[] { srcId }),
                     Shortlist = "[]",
@@ -301,9 +305,16 @@ public partial class WatchtowerService(
                         .SetProperty(w => w.Provenance, WtJson.WriteStrings(prov))
                         .SetProperty(w => w.UpdatedAtUnix, now), ct).ConfigureAwait(false);
             }
-            if (string.IsNullOrWhiteSpace(row.Title) && !string.IsNullOrWhiteSpace(r.Title))
+            if (!string.IsNullOrWhiteSpace(r.Title) && WtTitles.IsUnresolvedTitle(row.Title, row.ContentId))
                 await ctx.WantedItems.Where(w => w.Id == row.Id)
                     .ExecuteUpdateAsync(s => s.SetProperty(w => w.Title, r.Title!), ct).ConfigureAwait(false);
+            else if (WtTitles.IsUnresolvedTitle(row.Title, row.ContentId))
+            {
+                var resolved = await WtTitles.ResolveAsync(titleResolver, row.Type, row.ContentId, ct).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(resolved))
+                    await ctx.WantedItems.Where(w => w.Id == row.Id)
+                        .ExecuteUpdateAsync(s => s.SetProperty(w => w.Title, resolved), ct).ConfigureAwait(false);
+            }
             if (row.State != WantedItem.StateExpander && WantedItem.IsBareSeries(row.Type, row.ContentId))
                 await ctx.WantedItems.Where(w => w.Id == row.Id)
                     .ExecuteUpdateAsync(s => s
@@ -485,6 +496,14 @@ public partial class WatchtowerService(
                             .SetProperty(w => w.Provenance, WtJson.WriteStrings(prov))
                             .SetProperty(w => w.UpdatedAtUnix, now), ct).ConfigureAwait(false);
                 }
+                if (WtTitles.IsUnresolvedTitle(child.Title, child.ContentId)
+                    && !WtTitles.IsUnresolvedTitle(row.Title, row.ContentId))
+                {
+                    await ctx.WantedItems.Where(w => w.Id == child.Id)
+                        .ExecuteUpdateAsync(s => s
+                            .SetProperty(w => w.Title, row.Title)
+                            .SetProperty(w => w.UpdatedAtUnix, now), ct).ConfigureAwait(false);
+                }
             }
             else
             {
@@ -533,17 +552,24 @@ public partial class WatchtowerService(
     private async Task<Dictionary<string, DesiredRow>?> BuildDesiredAsync(
         DavDatabaseContext ctx, WantedItem expander, IReadOnlyList<string> scopes, long now, CancellationToken ct)
     {
-        if (IsImdbId(expander.ContentId))
+        if (WtTitles.IsImdbId(expander.ContentId))
         {
             var episodes = await episodeEnumerator.EnumerateImdbAsync(expander.ContentId, ct).ConfigureAwait(false);
             if (episodes.Count == 0) return null;
-            var imdb = CanonicalImdb(expander.ContentId);
+            var imdb = WtTitles.CanonicalImdb(expander.ContentId);
+            var seriesTitle = expander.Title;
+            if (WtTitles.IsUnresolvedTitle(seriesTitle, expander.ContentId))
+            {
+                var resolved = await WtTitles.ResolveAsync(titleResolver, "series", imdb, ct).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(resolved))
+                    seriesTitle = expander.Title = resolved;
+            }
             var parked = configManager.IsWatchtowerSeasonBundleFallbackEnabled()
                 ? await GetParkedFallbackSeasonsAsync(ctx, imdb, ct).ConfigureAwait(false)
                 : new HashSet<int>();
             var desired = new Dictionary<string, DesiredRow>();
             foreach (var scope in scopes)
-                foreach (var (k, v) in BuildDesiredRows(episodes, expander.Title, imdb, scope, now, parked))
+                foreach (var (k, v) in BuildDesiredRows(episodes, seriesTitle, imdb, scope, now, parked))
                     desired[k] = v;
             return ClampSeries(desired);
         }
@@ -731,23 +757,6 @@ public partial class WatchtowerService(
         return string.IsNullOrEmpty(baseTitle) ? code : $"{baseTitle} {code}";
     }
 
-    private static bool IsImdbId(string contentId)
-    {
-        var s = contentId;
-        var colon = s.IndexOf(':', StringComparison.Ordinal);
-        if (colon > 0) s = s[..colon];
-        if (s.StartsWith("tt", StringComparison.OrdinalIgnoreCase)) s = s[2..];
-        return s.Length > 0 && s.All(char.IsDigit);
-    }
-
-    private static string CanonicalImdb(string contentId)
-    {
-        var s = contentId;
-        var colon = s.IndexOf(':', StringComparison.Ordinal);
-        if (colon > 0) s = s[..colon];
-        return s.StartsWith("tt", StringComparison.OrdinalIgnoreCase) ? s : "tt" + s;
-    }
-
     private async Task ResolveDueItemsAsync(CancellationToken ct)
     {
         var auto = configManager.IsWatchtowerAutoThroughput();
@@ -858,6 +867,7 @@ public partial class WatchtowerService(
             item.UpdatedAtUnix = now;
             return;
         }
+        await BackfillTitleAsync(item, ct).ConfigureAwait(false);
         SearchProfileService.SearchResult? search;
         await _indexerGate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -1076,6 +1086,7 @@ public partial class WatchtowerService(
     private async Task KeepFreshOneAsync(WantedItem item, CancellationToken ct)
     {
         var now = Now();
+        await BackfillTitleAsync(item, ct).ConfigureAwait(false);
         var shortlist = WtJson.ReadPointers(item.Shortlist);
         if (shortlist.Count == 0 || item.WinnerNzb is null)
         {
@@ -1120,6 +1131,14 @@ public partial class WatchtowerService(
         wardenStore.MarkDead(WardenFingerprint.Compute(shortlist[0].Size, shortlist[0].Poster, shortlist[0].UsenetDate));
         shortlist.RemoveAt(0);
         await PromoteBackupAsync(item, shortlist, now, ct).ConfigureAwait(false);
+    }
+
+    private async Task BackfillTitleAsync(WantedItem item, CancellationToken ct)
+    {
+        if (!WtTitles.IsUnresolvedTitle(item.Title, item.ContentId)) return;
+        var resolved = await WtTitles.ResolveAsync(titleResolver, item.Type, item.ContentId, ct).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(resolved))
+            item.Title = resolved;
     }
 
     private async Task PromoteBackupAsync(WantedItem item, List<WtPointer> shortlist, long now, CancellationToken ct)
