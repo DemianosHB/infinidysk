@@ -1,8 +1,8 @@
 > [!NOTE]
-> **Fork note:** this tree is the Rust port base of the DemianosHB fork, vendored from
-> [infinidysk/infinidysk](https://github.com/infinidysk/infinidysk) `main` (2.x) and adapted
-> here. The v1-only features of this fork are being ported into this workspace on top — see
-> [PORTING.md](PORTING.md) for the plan and status. Everything below is upstream's README.
+> **This is NeoDysk**, the DemianosHB fork of [infinidysk/infinidysk](https://github.com/infinidysk/infinidysk).
+> This tree is the fork's Rust 2.x line, vendored from upstream `main` and developed further here —
+> see [PORTING.md](PORTING.md) for the porting plan and status. The 1.x (C#) line lives on this repo's
+> [`v1`](https://github.com/DemianosHB/neodysk/tree/v1) branch and is maintenance-only.
 
 <p align="center">
   <img src="ui/public/logo.svg" width="128" alt="neodysk logo" />
@@ -13,24 +13,23 @@
 <p align="center"><strong>Your media library, streamed from Usenet.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/infinidysk/infinidysk/releases"><img alt="Latest 2.x release" src="https://img.shields.io/github/v/release/infinidysk/infinidysk?include_prereleases&filter=v2.*&label=2.x" /></a>
-  <a href="https://github.com/infinidysk/infinidysk/pkgs/container/infinidysk-next"><img alt="Docker image" src="https://img.shields.io/badge/ghcr.io-infinidysk%2Finfinidysk--next-blue?logo=docker&logoColor=white" /></a>
-  <a href="https://github.com/infinidysk/infinidysk/actions/workflows/ci.yml"><img alt="CI status" src="https://img.shields.io/github/actions/workflow/status/infinidysk/infinidysk/ci.yml?branch=main&label=CI" /></a>
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/infinidysk/infinidysk" /></a>
+  <a href="https://github.com/DemianosHB/neodysk/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/DemianosHB/neodysk?include_prereleases&filter=v2.*&label=2.x" /></a>
+  <a href="https://github.com/DemianosHB/neodysk/pkgs/container/neodysk-rust"><img alt="Docker image" src="https://img.shields.io/badge/ghcr.io-demianoshb%2Fneodysk--rust-blue?logo=docker&logoColor=white" /></a>
+  <a href="https://github.com/DemianosHB/neodysk/actions/workflows/rust-ci.yml?branch=rust"><img alt="CI status" src="https://img.shields.io/github/actions/workflow/status/DemianosHB/neodysk/rust-ci.yml?branch=rust&label=CI" /></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/DemianosHB/neodysk" /></a>
   <a href="https://discord.gg/DAya7W6QMa"><img alt="Discord" src="https://img.shields.io/badge/Discord-chat-5865F2?logo=discord&logoColor=white" /></a>
 </p>
 
 <p align="center">
-  <a href="https://www.infinidysk.com/">Docs</a> ·
+  <a href="https://www.infinidysk.com/">Docs (upstream)</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="https://www.infinidysk.com/v2/upgrade/">Upgrade from 1.x</a> ·
-  <a href="https://discord.gg/DAya7W6QMa">Discord</a> ·
-  <a href="https://github.com/infinidysk/infinidysk/issues">Issues</a>
+  <a href="https://github.com/DemianosHB/neodysk/issues">Issues</a>
 </p>
 
 neodysk is a Usenet-backed virtual filesystem. Sonarr, Radarr and other Arr apps add it as a SABnzbd download client. It never downloads the release: your media server reads the files over a native FUSE mount or WebDAV, and neodysk streams them from your Usenet providers on demand.
 
-This is neodysk **2.0**, rewritten in Rust and now in **beta**. On 1.x? See [Looking for 1.x?](#looking-for-1x)
+This is neodysk **2.0**, rewritten in Rust. On the C# 1.x line? See [Looking for 1.x?](#looking-for-1x)
 
 > [!WARNING]
 > **Moving from 1.x to 2.x is a breaking change.** Changing the image name alone is not an upgrade. Follow [Upgrade from 1.x](https://www.infinidysk.com/v2/upgrade/), and check [what is not in 2.x yet](https://www.infinidysk.com/v2/whats-new/#feature-comparison).
@@ -56,7 +55,7 @@ A new install. Coming from 1.x? Follow [Upgrade from 1.x](https://www.infinidysk
 ```yaml
 services:
   neodysk:
-    image: ghcr.io/infinidysk/infinidysk-next:edge
+    image: ghcr.io/demianoshb/neodysk-rust:rust-dev
     container_name: neodysk
     restart: unless-stopped
     environment:
@@ -83,8 +82,8 @@ Open `http://<host>:3000`, create the admin account, then add your providers. Do
 |---|---|
 | **Port** | `3000`, shared by the UI, the SABnzbd API and WebDAV |
 | **Mount** | The library is mounted at `/mnt/infinidysk` |
-| **Image** | `ghcr.io/infinidysk/infinidysk-next`, for Linux x64 and arm64 |
-| **Tags** | `edge` is the newest 2.x release. Every release also has its own `v2.x.y` tag. `nightly` is built from `main` every day; it is unreleased and shows no update notice. There is no `latest` tag until 2.0 ships. |
+| **Image** | `ghcr.io/demianoshb/neodysk-rust`, for Linux x64 and arm64 |
+| **Tags** | Pushes of a `v2*` tag publish that version (plus `latest`); a manual workflow run on the `rust` branch publishes `rust-dev`. Upstream keeps `ghcr.io/infinidysk/infinidysk-next`. |
 
 Next steps in the docs:
 
@@ -95,7 +94,7 @@ Next steps in the docs:
 
 ## Status
 
-2.0 is in beta. It is a from-scratch rewrite, so it does not have every 1.x feature yet.
+2.0 is a from-scratch rewrite, so it does not have every 1.x feature yet.
 
 **In 2.x now**
 
@@ -104,6 +103,7 @@ Next steps in the docs:
 - Symlink or STRM import: symlinks for Plex and other apps on the mount host, STRM files for Emby, Jellyfin and Kodi without the mount
 - NZBs with plain files, multipart files and stored RAR4, RAR5 and 7z members, including encrypted members when the NZB name or metadata carries the password
 - Providers picked from a built-in catalog with backbones, priority levels, a download speed limit and per-provider quotas
+- Optional process-wide SOCKS5 outbound proxy for NNTP and indexer traffic, with a bypass list — **Settings → Network** (`proxy.socks5`, `proxy.socks5_bypass`), or via `INFINIDYSK__PROXY__SOCKS5` / `INFINIDYSK__PROXY__SOCKS5_BYPASS`
 - Health checks with media analysis, replacement through the Arr, and PAR2 repair as an experiment
 - Arr queue management, webhooks and a daily library reconciliation
 - SQLite and PostgreSQL, with a move from SQLite to PostgreSQL in the UI
@@ -126,7 +126,7 @@ Availability checks use small NNTP STAT requests plus first, middle and last art
 
 Limits are fixed. One repair runs at a time, with 256 MB working memory, 100 GB decoded source reads and one hour per attempt, and release sets up to 16 GB. A failed attempt retries after six hours, up to three attempts. A file found damaged beyond repair is not retried. Unsupported compression and missing passwords fail directly. Every reconstructed source passes full checksum verification before neodysk publishes it, and all sets of one job publish together.
 
-Saved repair articles live in `repairs/` inside your config folder (`/config/repairs` by default), up to 4 GB. When a new repair needs room, the least recently read repairs are removed and their files go back to health checks. Built-in backup and restore supports SQLite only; those backups include verified repair bytes and pending C# repair candidates. For PostgreSQL, stop neodysk, take a database dump with `pg_dump` and copy that repair directory as a matched pair. Restore both before restarting neodysk. A dump alone cannot recover the repair bytes; missing repairs trigger health rechecks. To move an install, stop neodysk and copy the whole config directory, including `repairs/`. Back up config before upgrading.
+Saved repair articles live in `repairs/` inside your config folder (`/config/repairs` by default), up to 4 GB. When a new repair needs room, the least recently read repairs are removed and their files go back to health checks. Built-in backup and restore supports SQLite only; those backups include verified repair bytes and pending C# repair candidates. For PostgreSQL, stop neodysk, take a database dump with `pg_dump` and copy that repair directory in your config folder as a matched pair. Restore both before restarting neodysk. A dump alone cannot recover the repair bytes; missing repairs trigger health rechecks. To move an install, stop neodysk and copy the whole config directory, including `repairs/`. Back up config before upgrading.
 
 Repairs for articles omitted from an NZB require a saved PAR2 recovery-set identity and trusted byte ranges. Repair recovers missing proofs from the original NZB when possible. C# repair files are preserved as candidates and become normal saved repairs only after full PAR2 verification. The importer retires its old reader after a complete rewrite pass and seven days without use; original C# files are retained.
 
@@ -134,11 +134,11 @@ When staging saved 1.x repair data, unusable candidates are reported and kept in
 
 ## Reporting problems
 
-See [Reporting a bug](https://www.infinidysk.com/v2/help/reporting/): the image tag, a support pack from the System page, and for playback problems a read trace. Never post provider passwords or API keys. Release names are not needed; describe the file instead (for example "stored RAR5 episode").
+Open an issue on [github.com/DemianosHB/neodysk/issues](https://github.com/DemianosHB/neodysk/issues). See [Reporting a bug](https://www.infinidysk.com/v2/help/reporting/): the image tag, a support pack from the System page, and for playback problems a read trace. Never post provider passwords or API keys. Release names are not needed; describe the file instead (for example "stored RAR5 episode").
 
 ## Development
 
-1.x bug fixes go to the `v1` branch; everything else targets `main`. Read [AGENTS.md](AGENTS.md) for the project rules and [DESIGN.md](DESIGN.md) before changing the UI.
+1.x bug fixes go to the `v1` branch; everything else targets `rust`. Read [AGENTS.md](AGENTS.md) for the project rules and [DESIGN.md](DESIGN.md) before changing the UI.
 
 Requires [rustup](https://rustup.rs); the toolchain is pinned in `rust-toolchain.toml`.
 
@@ -163,19 +163,7 @@ cd ui && npm ci && npm run dev
 
 ## Looking for 1.x?
 
-1.x (the C# version) lives on the [`v1`](https://github.com/infinidysk/infinidysk/tree/v1) branch and keeps the `ghcr.io/infinidysk/infinidysk` image. It gets bug fixes only. Its docs are at [infinidysk.com/v1](https://www.infinidysk.com/v1/).
-
-<details>
-<summary>My fork tracks 1.x. How do I move it to <code>v1</code>?</summary>
-
-```sh
-git fetch upstream
-git push origin upstream/v1:refs/heads/v1
-```
-
-Then set your fork's default branch to `v1` and sync that branch from now on. A fork with its own commits merges `upstream/v1` instead of `upstream/main`; it is the same history, so there are no new conflicts.
-
-</details>
+1.x (the C# version) lives on this repo's [`v1`](https://github.com/DemianosHB/neodysk/tree/v1) branch and publishes `ghcr.io/demianoshb/neodysk`. It gets bug fixes only (maintenance). Upstream 1.x docs are at [infinidysk.com/v1](https://www.infinidysk.com/v1/).
 
 ## License
 
