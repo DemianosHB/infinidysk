@@ -3706,7 +3706,7 @@ mod tests {
 
     #[test]
     fn json_list_parses_root_object_list_property() {
-        let refs = parse_json_list(br##"{"list":"tt0000003\nseries:tt0000004:1:1"}"##).unwrap();
+        let refs = parse_json_list(br#"{"list":"tt0000003\nseries:tt0000004:1:1"}"#).unwrap();
         assert_eq!(refs.len(), 2);
         assert_eq!(refs[0].r#type, "movie");
         assert_eq!(refs[0].content_id, "tt0000003");
@@ -3717,7 +3717,7 @@ mod tests {
     #[test]
     fn json_list_keeps_string_object_and_items_forms() {
         let refs = parse_json_list(
-            br##"["tt0000005",{"id":"tt0000006","type":"series","name":"n"},{"imdb":"tt0000007"}]"##,
+            br#"["tt0000005",{"id":"tt0000006","type":"series","name":"n"},{"imdb":"tt0000007"}]"#,
         )
         .unwrap();
         assert_eq!(refs.len(), 3);
@@ -3725,11 +3725,11 @@ mod tests {
         assert_eq!(refs[1].r#type, "series");
         assert_eq!(refs[1].title.as_deref(), Some("n"));
         assert_eq!(refs[2].content_id, "tt0000007");
-        let items = parse_json_list(br##"{"items":["tt0000008"]}"##).unwrap();
+        let items = parse_json_list(br#"{"items":["tt0000008"]}"#).unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].content_id, "tt0000008");
         assert!(
-            parse_json_list(br##"{"unrelated":true}"##)
+            parse_json_list(br#"{"unrelated":true}"#)
                 .unwrap()
                 .is_empty()
         );
@@ -3778,7 +3778,7 @@ mod tests {
 
     #[tokio::test]
     async fn url_list_sends_accept_and_parses_list_envelope() {
-        let payload = br##"[{"list":"series:tt0000001:10:7\n"}]"##;
+        let payload = br#"[{"list":"series:tt0000001:10:7\n"}]"#;
         let head = format!(
             "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
             payload.len()
