@@ -284,11 +284,10 @@ async fn http_get(
     timeout: Duration,
     ct: &CancellationToken,
 ) -> Option<reqwest::Response> {
-    let mut req = client.get(url).header(reqwest::header::USER_AGENT, ua);
-    let _ = &mut req;
     let fut = client
         .get(url)
         .header(reqwest::header::USER_AGENT, ua)
+        .header(reqwest::header::ACCEPT, "application/json, text/plain, */*")
         .send();
     tokio::select! {
         () = ct.cancelled() => None,
@@ -610,10 +609,13 @@ impl ListSourceEnumerator {
         let Some(url) = url.filter(|u| !u.trim().is_empty()) else {
             return Ok(Vec::new());
         };
-        let body = self
-            .http_get_body(url, ct)
-            .await?
-            .ok_or_else(|| "List request failed or returned an empty response.".to_owned())?;
+        let (body, status) = self.http_get_body_with_status(url, ct).await?;
+        let Some(body) = body else {
+            return Err(match status {
+                Some(code) => format!("List request failed (HTTP {code})."),
+                None => "List request failed or returned an empty response.".to_owned(),
+            });
+        };
         if looks_like_json(&body) {
             parse_json_list(&body)
         } else {
@@ -626,12 +628,23 @@ impl ListSourceEnumerator {
         url: &str,
         ct: &CancellationToken,
     ) -> Result<Option<Vec<u8>>, String> {
+        self.http_get_body_with_status(url, ct)
+            .await
+            .map(|(body, _)| body)
+    }
+
+    async fn http_get_body_with_status(
+        &self,
+        url: &str,
+        ct: &CancellationToken,
+    ) -> Result<(Option<Vec<u8>>, Option<u16>), String> {
         let client = reqwest::Client::new();
         let resp = http_get(&client, url, "NzbDav-Watchtower", LIST_FETCH_TIMEOUT, ct)
             .await
             .ok_or_else(|| "List request failed.".to_owned())?;
-        if !resp.status().is_success() {
-            return Ok(None);
+        let status = resp.status();
+        if !status.is_success() {
+            return Ok((None, Some(status.as_u16())));
         }
         let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
         if bytes.len() as u64 > self.max_response_bytes {
@@ -640,7 +653,7 @@ impl ListSourceEnumerator {
                 self.max_response_bytes
             ));
         }
-        Ok(Some(bytes.to_vec()))
+        Ok((Some(bytes.to_vec()), Some(status.as_u16())))
     }
 }
 
@@ -774,14 +787,19 @@ fn looks_like_json(body: &[u8]) -> bool {
 fn parse_json_list(body: &[u8]) -> Result<Vec<WtContentRef>, String> {
     let doc: serde_json::Value = serde_json::from_slice(body)
         .map_err(|_| "The list response was not valid JSON.".to_owned())?;
-    let arr = if doc.is_array() {
+    let arr: Vec<serde_json::Value> = if doc.is_array() {
         doc.as_array().cloned().unwrap_or_default()
     } else if let Some(items) = doc.get("items").and_then(|v| v.as_array()) {
         items.clone()
     } else {
-        return Ok(Vec::new());
+        Vec::new()
     };
     let mut refs = Vec::new();
+    if !doc.is_array()
+        && let Some(list) = doc.get("list").and_then(|v| v.as_str())
+    {
+        refs.extend(parse_plain_list(list));
+    }
     for el in arr {
         if let Some(s) = el.as_str() {
             let (t, id) = split_type_id(s);
@@ -798,18 +816,21 @@ fn parse_json_list(body: &[u8]) -> Result<Vec<WtContentRef>, String> {
                 .or_else(|| el.get("imdb"))
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
-            if id.trim().is_empty() {
-                continue;
+            if !id.trim().is_empty() {
+                refs.push(WtContentRef {
+                    r#type: normalize_type(
+                        el.get("type").and_then(|v| v.as_str()).unwrap_or("movie"),
+                    ),
+                    content_id: id.to_owned(),
+                    title: el
+                        .get("name")
+                        .or_else(|| el.get("title"))
+                        .and_then(|v| v.as_str())
+                        .map(str::to_owned),
+                });
+            } else if let Some(list) = el.get("list").and_then(|v| v.as_str()) {
+                refs.extend(parse_plain_list(list));
             }
-            refs.push(WtContentRef {
-                r#type: normalize_type(el.get("type").and_then(|v| v.as_str()).unwrap_or("movie")),
-                content_id: id.to_owned(),
-                title: el
-                    .get("name")
-                    .or_else(|| el.get("title"))
-                    .and_then(|v| v.as_str())
-                    .map(str::to_owned),
-            });
         }
     }
     Ok(refs)
@@ -3668,5 +3689,114 @@ mod tests {
         assert_eq!(next_backoff(&c, None, now), 3600);
         assert_eq!(next_backoff(&c, Some(now - 7200), now), 7200);
         assert_eq!(next_backoff(&c, Some(now - 10 * 86_400), now), 86_400);
+    }
+
+    #[test]
+    fn json_list_parses_embedded_plain_list_envelope() {
+        let refs = parse_json_list(
+            br##"[{"list":"# exported\nseries:tt0000001:10:7\nmovie:tt0000002\n"}]"##,
+        )
+        .unwrap();
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0].r#type, "series");
+        assert_eq!(refs[0].content_id, "tt0000001:10:7");
+        assert_eq!(refs[1].r#type, "movie");
+        assert_eq!(refs[1].content_id, "tt0000002");
+    }
+
+    #[test]
+    fn json_list_parses_root_object_list_property() {
+        let refs = parse_json_list(br##"{"list":"tt0000003\nseries:tt0000004:1:1"}"##).unwrap();
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0].r#type, "movie");
+        assert_eq!(refs[0].content_id, "tt0000003");
+        assert_eq!(refs[1].r#type, "series");
+        assert_eq!(refs[1].content_id, "tt0000004:1:1");
+    }
+
+    #[test]
+    fn json_list_keeps_string_object_and_items_forms() {
+        let refs = parse_json_list(
+            br##"["tt0000005",{"id":"tt0000006","type":"series","name":"n"},{"imdb":"tt0000007"}]"##,
+        )
+        .unwrap();
+        assert_eq!(refs.len(), 3);
+        assert_eq!(refs[0].content_id, "tt0000005");
+        assert_eq!(refs[1].r#type, "series");
+        assert_eq!(refs[1].title.as_deref(), Some("n"));
+        assert_eq!(refs[2].content_id, "tt0000007");
+        let items = parse_json_list(br##"{"items":["tt0000008"]}"##).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].content_id, "tt0000008");
+        assert!(
+            parse_json_list(br##"{"unrelated":true}"##)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    async fn serve_once(response: Vec<u8>) -> (String, tokio::sync::mpsc::Receiver<String>) {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = tokio::sync::mpsc::channel::<String>(1);
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let n = sock.read(&mut chunk).await.unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..n]);
+                if request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let _ = tx.send(String::from_utf8_lossy(&request).to_string()).await;
+            sock.write_all(&response).await.unwrap();
+        });
+        (format!("http://{addr}/list"), rx)
+    }
+
+    #[tokio::test]
+    async fn url_list_reports_http_status_when_server_rejects() {
+        let (url, _rx) = serve_once(
+            b"HTTP/1.1 415 Unsupported Media Type\r\ncontent-type: text/plain\r\ncontent-length: 4\r\nconnection: close\r\n\r\n415!"
+                .to_vec(),
+        )
+        .await;
+        let enumerator = ListSourceEnumerator::new(1024 * 1024);
+        let ct = CancellationToken::new();
+        let err = enumerator
+            .fetch_url_list(Some(&url), &ct)
+            .await
+            .unwrap_err();
+        assert!(err.contains("HTTP 415"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn url_list_sends_accept_and_parses_list_envelope() {
+        let payload = br##"[{"list":"series:tt0000001:10:7\n"}]"##;
+        let head = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+            payload.len()
+        );
+        let mut response = head.into_bytes();
+        response.extend_from_slice(payload);
+        let (url, mut rx) = serve_once(response).await;
+        let enumerator = ListSourceEnumerator::new(1024 * 1024);
+        let ct = CancellationToken::new();
+        let refs = enumerator.fetch_url_list(Some(&url), &ct).await.unwrap();
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].r#type, "series");
+        assert_eq!(refs[0].content_id, "tt0000001:10:7");
+        let request = rx.recv().await.unwrap();
+        let lower = request.to_lowercase();
+        assert!(
+            lower.contains("accept: application/json"),
+            "request lacked an Accept header: {request}"
+        );
     }
 }
