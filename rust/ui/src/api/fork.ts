@@ -356,4 +356,40 @@ export type ForkDoc = {
     sync_enabled: boolean;
     sync_interval_minutes: number;
   };
+  repair: {
+    readahead_enabled: boolean;
+    readahead_window_seconds: number;
+  };
+  search: {
+    exclude_patterns: string;
+    user_agent: string;
+    search_user_agent: string;
+    resolvers_enabled: boolean;
+  };
+  preflight: {
+    mode: string;
+    maxAttempts: number;
+    ttlSeconds: number;
+    indexerMaxWaitSeconds: number;
+  };
+  play: {
+    verifyMode: string;
+    verifySampleCount: number;
+    totalBudgetSeconds: number;
+    hedgeDelaySeconds: number;
+    maxCandidates: number;
+    maxAttempts: number;
+    preferSubtitles: boolean;
+    watchdogEnabled: boolean;
+    stallNegativeMarkingEnabled: boolean;
+    stallNegativeMarkingMinutes: number;
+    candidateNegativeCacheMinutes: number;
+    resolutionCacheTtlHours: number;
+    excludePatterns: string;
+  };
+  grab: {
+    stallFailoverEnabled: boolean;
+    stallFailoverWindowSeconds: number;
+    stallFailoverCeilingSeconds: number;
+  };
 };

@@ -20,6 +20,7 @@ import { copyText, MASK, notAPassword, type Settings as Doc, useRestart, useSave
 import { LibraryPanel, PreviewDialog, type PreviewRequest, previewTitle } from "../library";
 import { BackupsPanel } from "../backups";
 import { IndexersPanel, ProfilesPanel, ProwlarrPanel, WatchtowerSettings } from "./fork-settings";
+import { GrabSettings, PlaySettings, PreflightSettings, RepairSettings, SearchSettings } from "./v1-behavior-settings";
 import { WardenPanel } from "./warden";
 import { MaintenancePanel } from "../maintenance";
 import { DatabasePanel } from "../database";
@@ -163,6 +164,36 @@ const categories = [
     slug: "warden",
     title: "Warden",
     description: "Dead-release list shared from remote sources; dead releases are hidden from results (v1-only feature)",
+  },
+  {
+    group: "v1 fork",
+    slug: "repair",
+    title: "Repairs",
+    description: "Read-ahead repair window for active streams; PAR2 itself stays an experiment (v1-fork feature)",
+  },
+  {
+    group: "v1 fork",
+    slug: "search",
+    title: "Search",
+    description: "Exclude patterns and user agents for NZB retrieval and indexer search (v1-fork feature)",
+  },
+  {
+    group: "v1 fork",
+    slug: "preflight",
+    title: "Preflight",
+    description: "Background verification of candidates before playback (v1-fork feature)",
+  },
+  {
+    group: "v1 fork",
+    slug: "play",
+    title: "Playback",
+    description: "Candidate selection, verification and stall handling during playback (v1-fork feature)",
+  },
+  {
+    group: "v1 fork",
+    slug: "grab",
+    title: "Stall failover",
+    description: "Fail over to the next candidate when the chosen one stalls during playback (v1-fork feature)",
   },
   {
     group: "System",
@@ -689,6 +720,11 @@ export function Settings() {
           {category.slug === "profiles" && <ProfilesPanel title={category.title} description={category.description} />}
           {category.slug === "prowlarr" && <ProwlarrPanel title={category.title} description={category.description} />}
           {category.slug === "warden" && <WardenPanel title={category.title} description={category.description} />}
+          {category.slug === "repair" && <RepairSettings title={category.title} description={category.description} />}
+          {category.slug === "search" && <SearchSettings title={category.title} description={category.description} />}
+          {category.slug === "preflight" && <PreflightSettings title={category.title} description={category.description} />}
+          {category.slug === "play" && <PlaySettings title={category.title} description={category.description} />}
+          {category.slug === "grab" && <GrabSettings title={category.title} description={category.description} />}
           <form id="settings" onSubmit={submit}>
             {category.slug === "download-client" && (
               <Section category={category}>
