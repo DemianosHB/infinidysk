@@ -12,6 +12,9 @@ db.sqlite-wal
 # Local scratch space (plans, notes, dumps); never committed.
 /scrap/
 
+# Stamped by the release workflow into the docker build context; never committed.
+/release-notes.build.md
+
 # Separate upstream dependency checkout; never include its source in this repository.
 /infinidysk-fuse/
 
