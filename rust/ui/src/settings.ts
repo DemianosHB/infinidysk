@@ -1,10 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, body, type Schemas } from "./api/client";
+import type { ForkDoc } from "./api/fork";
 
-export type Settings = Schemas["Settings"];
+// The generated schema predates the v1-fork sections; they are typed in `api/fork.ts`.
+export type Settings = Schemas["Settings"] & ForkDoc;
+
+export type SettingsView = Omit<Schemas["SettingsView"], "settings"> & { settings: Settings };
 
 export function useSettings() {
-  return useQuery({ queryKey: ["settings"], queryFn: () => body(api.GET("/api/v1/settings")) });
+  return useQuery({
+    queryKey: ["settings"],
+    queryFn: async () => (await body(api.GET("/api/v1/settings"))) as SettingsView,
+  });
 }
 
 export function useCatalog() {
@@ -19,7 +26,8 @@ export function useCatalog() {
 export function useSaveSettings() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (settings: Settings) => body(api.PUT("/api/v1/settings", { body: settings })),
+    mutationFn: (settings: Settings) =>
+      body(api.PUT("/api/v1/settings", { body: settings })).then((v) => v as SettingsView),
     onSuccess: (view) => {
       client.setQueryData(["settings"], view);
       void client.invalidateQueries({ queryKey: ["auth"] });

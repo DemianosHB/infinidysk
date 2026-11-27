@@ -60,8 +60,8 @@ pub fn search_settings(s: &Settings) -> SearchSettings {
         exclude_patterns_raw: s.search.exclude_patterns.clone(),
         search_user_agent: s.search.search_user_agent.clone(),
         user_agent: s.search.user_agent.clone(),
-        watchtower_enabled: false, // Phase 3
-        warden_hide_dead: false,   // Phase 3
+        watchtower_enabled: false, // Phase 3 (Watchtower service)
+        warden_hide_dead: s.warden.hide_dead,
     }
 }
 
@@ -80,9 +80,29 @@ pub fn service_from_settings(s: &Settings) -> SearchService {
 
 /// Builds the router state: service from the current settings, plus config/auth handles.
 pub async fn build(config: Arc<RwLock<ConfigStore>>, auth: Arc<Auth>) -> Arc<Search> {
+    build_with_hooks(config, auth, None, None).await
+}
+
+/// [`build`] with the Phase-3 hooks: Warden dead-filter and the preflight starter.
+pub async fn build_with_hooks(
+    config: Arc<RwLock<ConfigStore>>,
+    auth: Arc<Auth>,
+    is_dead: Option<infinidysk_profiles::IsDeadHook>,
+    on_preflight: Option<infinidysk_profiles::PreflightHook>,
+) -> Arc<Search> {
     let settings = config.read().await.settings().clone();
+    let service = Arc::new(service_from_settings(&settings).with_hooks(is_dead, on_preflight));
+    build_with_service(config, auth, service)
+}
+
+/// [`build`] around an already-built service (so Phase-3 services can share it).
+pub fn build_with_service(
+    config: Arc<RwLock<ConfigStore>>,
+    auth: Arc<Auth>,
+    service: Arc<SearchService>,
+) -> Arc<Search> {
     Arc::new(Search {
-        service: Arc::new(service_from_settings(&settings)),
+        service,
         config,
         auth,
         coalescer: Arc::new(NzbFetchCoalescer::new()),
@@ -118,7 +138,7 @@ pub fn router(state: Arc<Search>) -> Router {
 
 impl Search {
     /// Pushes the current settings into the service when they changed since the last request.
-    async fn sync_settings(&self) {
+    pub(crate) async fn sync_settings(&self) {
         let snapshot = {
             let store = self.config.read().await;
             search_settings(store.settings())
@@ -470,7 +490,7 @@ fn rfc1123(ts: Timestamp) -> String {
     )
 }
 
-fn public_base_url(headers: &HeaderMap, uri: &Uri, configured: &str) -> String {
+pub(crate) fn public_base_url(headers: &HeaderMap, uri: &Uri, configured: &str) -> String {
     let trimmed = configured.trim_end_matches('/');
     let mut base = if !trimmed.is_empty() && trimmed != "http://localhost:3000" {
         trimmed.to_owned()
@@ -755,7 +775,7 @@ struct BehaviorHints {
     configuration_required: bool,
 }
 
-fn cors_headers(mut response: Response) -> Response {
+pub(crate) fn cors_headers(mut response: Response) -> Response {
     let headers = response.headers_mut();
     headers.insert(
         header::ACCESS_CONTROL_ALLOW_ORIGIN,
@@ -820,10 +840,10 @@ async fn manifest(State(state): State<Arc<Search>>, Path(token): Path<String>) -
 // --- GET /api/search/{token}/nzb/{playToken}.nzb (v1 NzbProxyController) ---
 
 /// v1 `ProfileReleaseName.SanitizeFileName`: invalid filename chars become `_`, trimmed,
-/// empty → "untitled"; `ToNzbFileName` appends `.nzb`.
-fn to_nzb_file_name(title: &str) -> String {
+/// empty → "untitled".
+pub(crate) fn sanitize_file_name(title: &str) -> String {
     if title.trim().is_empty() {
-        return "untitled.nzb".to_owned();
+        return "untitled".to_owned();
     }
     let clean: String = title
         .chars()
@@ -837,12 +857,16 @@ fn to_nzb_file_name(title: &str) -> String {
         .collect::<String>()
         .trim()
         .to_owned();
-    let clean = if clean.is_empty() {
-        "untitled"
+    if clean.is_empty() {
+        "untitled".to_owned()
     } else {
-        clean.as_str()
-    };
-    format!("{clean}.nzb")
+        clean
+    }
+}
+
+/// v1 `ProfileReleaseName.ToNzbFileName`: `SanitizeFileName` plus `.nzb`.
+pub(crate) fn to_nzb_file_name(title: &str) -> String {
+    format!("{}.nzb", sanitize_file_name(title))
 }
 
 /// v1 `NzbProxyController.Get`: resolve the play token, then fetch (coalesced, bounded)

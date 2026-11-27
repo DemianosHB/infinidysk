@@ -628,7 +628,68 @@ pub async fn serve(
     );
     let sab =
         Sab::new(Arc::clone(&queue), Arc::clone(&config)).context("building the NZB fetcher")?;
-    let search = crate::search::build(Arc::clone(&config), Arc::clone(&auth)).await;
+    // Phase 3: Warden dead-list + preflight orchestrator, wired as search hooks.
+    let warden = crate::warden::build(db.clone(), Arc::clone(&config), Arc::clone(&auth));
+    // v1 seeds the 'local' warden source at store init, not in a migration.
+    if let Err(e) = db.warden_ensure_local_source().await {
+        warn!(error = %e, "warden: seeding the local source failed");
+    }
+    // Phase 3: play watchdog read/clear routes (the watchdog page).
+    let watchdog = crate::watchdog::build(db.clone(), Arc::clone(&config), Arc::clone(&auth));
+    let warden_task = tokio::spawn({
+        let warden = Arc::clone(&warden);
+        let cancel = cancel.clone();
+        async move { warden.run(cancel).await }
+    });
+    let search_service = Arc::new(crate::search::service_from_settings(&settings));
+    let preflight = crate::preflight::Orchestrator::new(crate::preflight::Parts {
+        config: Arc::clone(&config),
+        cache: Arc::new(crate::preflight::PreflightCache::new()),
+        sessions: Arc::new(crate::preflight::SessionRegistry::new()),
+        verifier: Arc::new(crate::preflight::FastVerifier::new(Arc::clone(&client))),
+        coalescer: Arc::new(crate::nzb_fetch::NzbFetchCoalescer::new()),
+        warden: Arc::clone(&warden),
+        negative: Arc::new(crate::preflight::CandidateNegativeCache::new()),
+        search: Arc::clone(&search_service),
+    });
+    {
+        let warden = Arc::clone(&warden);
+        let preflight = Arc::clone(&preflight);
+        let is_dead: infinidysk_profiles::IsDeadHook = Arc::new(move |size, poster, date| {
+            let fp = infinidysk_profiles::preferred::warden_fingerprint(size, poster, date);
+            warden.is_dead_cached(fp.as_deref())
+        });
+        let on_preflight: infinidysk_profiles::PreflightHook =
+            Arc::new(move |token, ty, id, cands| {
+                preflight.start(token, ty, id, cands);
+            });
+        search_service.install_hooks(Some(is_dead), Some(on_preflight));
+    }
+    let search =
+        crate::search::build_with_service(Arc::clone(&config), Arc::clone(&auth), search_service);
+    // Phase 3: Watchtower service (list sources -> wanted items -> resolve/keep-fresh).
+    let watchtower = crate::watchtower::build(
+        db.clone(),
+        Arc::clone(&config),
+        Arc::clone(&auth),
+        Arc::clone(&search),
+        Arc::clone(&preflight),
+        Arc::clone(&warden),
+    )
+    .await;
+    let watchtower_task = tokio::spawn({
+        let watchtower = Arc::clone(&watchtower);
+        let cancel = cancel.clone();
+        async move { watchtower.run(cancel).await }
+    });
+    let play = crate::play::build(
+        Arc::clone(&config),
+        Arc::clone(&search),
+        Arc::clone(&queue),
+        db.clone(),
+        Arc::clone(&preflight),
+        Some(Arc::clone(&watchtower)),
+    );
     let prowlarr_sync =
         crate::prowlarr_sync::build(Arc::clone(&config), Arc::clone(&search), Arc::clone(&auth));
     let prowlarr_sync_task = tokio::spawn({
@@ -780,7 +841,11 @@ pub async fn serve(
     let adoption = Arc::new(crate::upgrade::WebDavAdoption::load(Arc::clone(&admin)).await);
     let app = sab::router(Arc::new(sab))
         .merge(crate::search::router(Arc::clone(&search)))
+        .merge(crate::play::router(Arc::clone(&play)))
         .merge(crate::prowlarr_sync::router(prowlarr_sync))
+        .merge(crate::warden::router(warden))
+        .merge(crate::watchdog::router(watchdog))
+        .merge(crate::watchtower::router(watchtower))
         .merge(hooks)
         .merge(crate::healthcheck::router(healthcheck))
         .merge(admin::router(admin, Arc::clone(&auth)))
@@ -831,6 +896,8 @@ pub async fn serve(
     warm_task.abort();
     optimize_task.abort();
     prowlarr_sync_task.abort();
+    warden_task.abort();
+    watchtower_task.abort();
     database.stop().await;
     let _ = metrics_task.await;
     let _ = quota_task.await;

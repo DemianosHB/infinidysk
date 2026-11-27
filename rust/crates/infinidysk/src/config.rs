@@ -220,6 +220,390 @@ pub struct ProwlarrSyncStatus {
     pub skipped: i32,
 }
 
+/// v1 `preflight.*` — background verification of search candidates (Phase 3).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Preflight {
+    /// `off` | `light` | `standard` | `full` (v1 `GetPreflightMode`, default off).
+    pub mode: String,
+    /// v1 default 20, clamp 1..=50.
+    pub max_attempts: u32,
+    /// v1 default 120, clamp 10..=1800.
+    pub ttl_seconds: u32,
+    /// v1 default 5, clamp 0..=120.
+    pub indexer_max_wait_seconds: u32,
+}
+
+impl Default for Preflight {
+    fn default() -> Self {
+        Self {
+            mode: "off".to_owned(),
+            max_attempts: 20,
+            ttl_seconds: 120,
+            indexer_max_wait_seconds: 5,
+        }
+    }
+}
+
+impl Preflight {
+    #[must_use]
+    pub fn mode(&self) -> &str {
+        match self.mode.as_str() {
+            "light" | "standard" | "full" => &self.mode,
+            _ => "off",
+        }
+    }
+    #[must_use]
+    pub fn max_attempts(&self) -> u32 {
+        self.max_attempts.clamp(1, 50)
+    }
+    #[must_use]
+    pub fn ttl_seconds(&self) -> u32 {
+        self.ttl_seconds.clamp(10, 1800)
+    }
+    #[must_use]
+    pub fn indexer_max_wait_seconds(&self) -> u32 {
+        self.indexer_max_wait_seconds.clamp(0, 120)
+    }
+}
+
+/// v1 `play.*` — the play/failover path (Phase 3).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Play {
+    /// `stat` | `body` | `none` (v1 `GetPlayVerifyMode`, default none).
+    pub verify_mode: String,
+    /// v1 default 3, clamp 1..=10.
+    pub verify_sample_count: u32,
+    /// v1 default 30, clamp 3..=180.
+    pub total_budget_seconds: u32,
+    /// v1 default 3, clamp 1..=30.
+    pub hedge_delay_seconds: u32,
+    /// v1 default 3, clamp 1..=10.
+    pub max_candidates: u32,
+    /// v1 default 10, clamp 1..=200.
+    pub max_attempts: u32,
+    /// v1 default true.
+    pub prefer_subtitles: bool,
+    /// v1 default true.
+    pub watchdog_enabled: bool,
+    /// Fork stall negative marking, default false.
+    pub stall_negative_marking_enabled: bool,
+    /// v1 default 15 min, clamp 1..=1440.
+    pub stall_negative_marking_minutes: u32,
+    /// v1 default 5 min, clamp 1..=1440.
+    pub candidate_negative_cache_minutes: u32,
+    /// v1 default 168 h, clamp 1..=720.
+    pub resolution_cache_ttl_hours: u32,
+    /// v1 `play.exclude-patterns`, fallback `search.exclude-patterns`.
+    pub exclude_patterns: String,
+}
+
+impl Default for Play {
+    fn default() -> Self {
+        Self {
+            verify_mode: "none".to_owned(),
+            verify_sample_count: 3,
+            total_budget_seconds: 30,
+            hedge_delay_seconds: 3,
+            max_candidates: 3,
+            max_attempts: 10,
+            prefer_subtitles: true,
+            watchdog_enabled: true,
+            stall_negative_marking_enabled: false,
+            stall_negative_marking_minutes: 15,
+            candidate_negative_cache_minutes: 5,
+            resolution_cache_ttl_hours: 168,
+            exclude_patterns: String::new(),
+        }
+    }
+}
+
+impl Play {
+    #[must_use]
+    pub fn verify_mode(&self) -> &str {
+        match self.verify_mode.as_str() {
+            "body" | "stat" | "none" => &self.verify_mode,
+            _ => "none",
+        }
+    }
+    #[must_use]
+    pub fn verify_sample_count(&self) -> u32 {
+        self.verify_sample_count.clamp(1, 10)
+    }
+    #[must_use]
+    pub fn total_budget_seconds(&self) -> u32 {
+        self.total_budget_seconds.clamp(3, 180)
+    }
+    #[must_use]
+    pub fn hedge_delay_seconds(&self) -> u32 {
+        self.hedge_delay_seconds.clamp(1, 30)
+    }
+    #[must_use]
+    pub fn max_candidates(&self) -> u32 {
+        self.max_candidates.clamp(1, 10)
+    }
+    #[must_use]
+    pub fn max_attempts(&self) -> u32 {
+        self.max_attempts.clamp(1, 200)
+    }
+    #[must_use]
+    pub fn stall_negative_marking_ttl_minutes(&self) -> u32 {
+        self.stall_negative_marking_minutes.clamp(1, 1440)
+    }
+    #[must_use]
+    pub fn candidate_negative_cache_ttl_minutes(&self) -> u32 {
+        self.candidate_negative_cache_minutes.clamp(1, 1440)
+    }
+    #[must_use]
+    pub fn resolution_cache_ttl_hours(&self) -> u32 {
+        self.resolution_cache_ttl_hours.clamp(1, 720)
+    }
+}
+
+/// v1 `grab.stall-failover-*` — abort a stalled play candidate and try the next one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Grab {
+    /// v1 default true.
+    pub stall_failover_enabled: bool,
+    /// v1 default 2, clamp 2..=60.
+    pub stall_failover_window_seconds: u32,
+    /// v1 default 5, clamp 5..=120.
+    pub stall_failover_ceiling_seconds: u32,
+}
+
+impl Default for Grab {
+    fn default() -> Self {
+        Self {
+            stall_failover_enabled: true,
+            stall_failover_window_seconds: 2,
+            stall_failover_ceiling_seconds: 5,
+        }
+    }
+}
+
+impl Grab {
+    #[must_use]
+    pub fn stall_failover_window_seconds(&self) -> u32 {
+        self.stall_failover_window_seconds.clamp(2, 60)
+    }
+    #[must_use]
+    pub fn stall_failover_ceiling_seconds(&self) -> u32 {
+        self.stall_failover_ceiling_seconds.clamp(5, 120)
+    }
+}
+
+/// v1 `warden.*` — the dead-release list (Phase 3).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Warden {
+    /// v1 default 2 (>= 1).
+    pub quorum: u32,
+    /// v1 default true.
+    pub hide_dead: bool,
+    /// v1 default true.
+    pub backbone_scope: bool,
+    /// v1 default 2,000,000 (> 0).
+    pub max_source_entries: u32,
+}
+
+impl Default for Warden {
+    fn default() -> Self {
+        Self {
+            quorum: 2,
+            hide_dead: true,
+            backbone_scope: true,
+            max_source_entries: 2_000_000,
+        }
+    }
+}
+
+impl Warden {
+    #[must_use]
+    pub fn quorum(&self) -> i64 {
+        i64::from(self.quorum.max(1))
+    }
+    #[must_use]
+    pub fn max_source_entries(&self) -> i64 {
+        i64::from(self.max_source_entries.max(1))
+    }
+}
+
+/// v1 `watchtower.*` — automatic series/movie grabs (Phase 3).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "v1 watchtower.* keys map 1:1 onto these fields"
+)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Watchtower {
+    pub enabled: bool,
+    pub profile_token: String,
+    /// `watchdog` (default) | `largest`.
+    pub ranking: String,
+    /// v1 default 524288000 (500 MiB).
+    pub size_floor_bytes: i64,
+    /// v1 default 0 = no ceiling.
+    pub size_ceiling_bytes: i64,
+    pub min_grabs: u32,
+    /// v1 default 2, clamp 1..=5.
+    pub shortlist_depth: u32,
+    /// v1 default 3, clamp 1..=10.
+    pub grab_cap_per_resolve: u32,
+    /// v1 default 3, clamp 1..=20.
+    pub verify_sample_count: u32,
+    /// v1 default 10, clamp 2..=120.
+    pub verify_timeout_seconds: u32,
+    /// v1 default 100, clamp 1..=100000.
+    pub active_set_cap: u32,
+    /// v1 default 3, clamp 1..=16.
+    pub resolve_concurrency: u32,
+    /// v1 default 60.
+    pub daily_resolve_budget: u32,
+    /// v1 default 3600, clamp 60..=86400.
+    pub sync_interval_seconds: u32,
+    /// v1 default: watchtower list source byte cap.
+    pub list_source_max_response_bytes: u64,
+    /// v1 keep-fresh bounds.
+    pub keepfresh_base_seconds: u32,
+    pub keepfresh_max_seconds: u32,
+    /// v1 default 3, clamp 1..=100.
+    pub series_recent_count: u32,
+    /// v1 default 50, clamp 0..=1000.
+    pub series_max_episodes: u32,
+    /// `newest` (default) | `oldest`.
+    pub series_cap_keep: String,
+    pub season_bundles: bool,
+    pub season_bundle_fallback: bool,
+    pub season_bundle_fallback_scope: String,
+    pub season_bundle_fallback_recent_count: u32,
+    pub season_bundle_fallback_max_episodes: u32,
+    pub auto_throughput: bool,
+    pub verbose_logging: bool,
+    /// Global series scope: `latest-season` (default) | `all-aired` | `first-season` | `recent` | `off`.
+    pub series_scope: String,
+    /// v1 default 21600 (6 h), clamp 600..=604800.
+    pub unavailable_retry_seconds: u32,
+}
+
+impl Default for Watchtower {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            profile_token: String::new(),
+            ranking: "watchdog".to_owned(),
+            size_floor_bytes: 524_288_000,
+            size_ceiling_bytes: 0,
+            min_grabs: 0,
+            shortlist_depth: 2,
+            grab_cap_per_resolve: 3,
+            verify_sample_count: 3,
+            verify_timeout_seconds: 10,
+            active_set_cap: 100,
+            resolve_concurrency: 3,
+            daily_resolve_budget: 60,
+            sync_interval_seconds: 3600,
+            list_source_max_response_bytes: 16 * 1024 * 1024,
+            keepfresh_base_seconds: 3600,
+            keepfresh_max_seconds: 86400,
+            series_recent_count: 3,
+            series_max_episodes: 50,
+            series_cap_keep: "newest".to_owned(),
+            season_bundles: true,
+            season_bundle_fallback: false,
+            season_bundle_fallback_scope: "recent".to_owned(),
+            season_bundle_fallback_recent_count: 2,
+            season_bundle_fallback_max_episodes: 50,
+            auto_throughput: false,
+            verbose_logging: false,
+            series_scope: "latest-season".to_owned(),
+            unavailable_retry_seconds: 21_600,
+        }
+    }
+}
+
+impl Watchtower {
+    #[must_use]
+    pub fn ranking(&self) -> &str {
+        if self.ranking == "largest" {
+            "largest"
+        } else {
+            "watchdog"
+        }
+    }
+    #[must_use]
+    pub fn shortlist_depth(&self) -> u32 {
+        self.shortlist_depth.clamp(1, 5)
+    }
+    #[must_use]
+    pub fn grab_cap_per_resolve(&self) -> u32 {
+        self.grab_cap_per_resolve.clamp(1, 10)
+    }
+    #[must_use]
+    pub fn verify_sample_count(&self) -> u32 {
+        self.verify_sample_count.clamp(1, 20)
+    }
+    #[must_use]
+    pub fn verify_timeout_seconds(&self) -> u32 {
+        self.verify_timeout_seconds.clamp(2, 120)
+    }
+    #[must_use]
+    pub fn active_set_cap(&self) -> u32 {
+        self.active_set_cap.clamp(1, 100_000)
+    }
+    #[must_use]
+    pub fn resolve_concurrency(&self) -> u32 {
+        self.resolve_concurrency.clamp(1, 16)
+    }
+    #[must_use]
+    pub fn sync_interval_seconds(&self) -> u32 {
+        self.sync_interval_seconds.clamp(60, 86_400)
+    }
+    #[must_use]
+    pub fn series_recent_count(&self) -> u32 {
+        self.series_recent_count.clamp(1, 100)
+    }
+    #[must_use]
+    pub fn series_max_episodes(&self) -> u32 {
+        self.series_max_episodes.clamp(0, 1000)
+    }
+    #[must_use]
+    pub fn series_cap_keep(&self) -> &str {
+        if self.series_cap_keep == "oldest" {
+            "oldest"
+        } else {
+            "newest"
+        }
+    }
+    #[must_use]
+    pub fn season_bundle_fallback_recent_count(&self) -> u32 {
+        self.season_bundle_fallback_recent_count.clamp(1, 100)
+    }
+    #[must_use]
+    pub fn season_bundle_fallback_max_episodes(&self) -> u32 {
+        self.season_bundle_fallback_max_episodes.clamp(1, 1000)
+    }
+    #[must_use]
+    pub fn series_scope(&self) -> &str {
+        match self.series_scope.as_str() {
+            "all-aired" | "first-season" | "recent" | "latest-season" | "off" => &self.series_scope,
+            _ => "latest-season",
+        }
+    }
+    #[must_use]
+    pub fn unavailable_retry_seconds(&self) -> u32 {
+        self.unavailable_retry_seconds.clamp(600, 604_800)
+    }
+    #[must_use]
+    pub fn season_bundle_fallback_scope(&self) -> &str {
+        match self.season_bundle_fallback_scope.as_str() {
+            "all" | "recent" | "unwatched" => &self.season_bundle_fallback_scope,
+            _ => "recent",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(default)]
 pub struct Settings {
@@ -248,6 +632,16 @@ pub struct Settings {
     pub profiles: ProfileConfig,
     /// v1 `prowlarr.*` — Prowlarr pull-sync connection and status.
     pub prowlarr: Prowlarr,
+    /// v1 `preflight.*` — background candidate verification.
+    pub preflight: Preflight,
+    /// v1 `play.*` — play/failover path.
+    pub play: Play,
+    /// v1 `grab.stall-failover-*` — stalled-candidate failover during play.
+    pub grab: Grab,
+    /// v1 `warden.*` — dead-release list.
+    pub warden: Warden,
+    /// v1 `watchtower.*` — automatic grabs.
+    pub watchtower: Watchtower,
     /// Experiments switched on, by name; they apply after a restart.
     #[serde(deserialize_with = "known_experiments")]
     pub experiments: Vec<String>,
@@ -1885,11 +2279,23 @@ impl ConfigStore {
         let mut env: Vec<Override> = vars
             .into_iter()
             .filter_map(|(key, raw)| {
-                let path: Vec<String> = key
+                let raw_path: Vec<String> = key
                     .strip_prefix(ENV_PREFIX)?
                     .split("__")
                     .map(str::to_ascii_lowercase)
                     .collect();
+                // Sections serialized camelCase (play.*, preflight.*, …) are addressed by
+                // snake_case env segments: retry with each segment in camelCase.
+                let path = if lookup(&defaults, &raw_path).is_some() {
+                    raw_path
+                } else {
+                    let camel: Vec<String> = raw_path.iter().map(|s| snake_to_camel(s)).collect();
+                    if lookup(&defaults, &camel).is_some() {
+                        camel
+                    } else {
+                        raw_path
+                    }
+                };
                 let Some(default) = lookup(&defaults, &path) else {
                     tracing::warn!(key, "ignoring unknown config environment variable");
                     return None;
@@ -2177,6 +2583,23 @@ fn reject_readarr(tree: &Value) -> Result<(), Error> {
             arr["name"].as_str().unwrap_or_default()
         ),
     ))
+}
+
+/// `watchdog_enabled` → `watchdogEnabled`, for env overrides of camelCase sections.
+fn snake_to_camel(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut upper = false;
+    for c in s.chars() {
+        if c == '_' {
+            upper = true;
+        } else if upper {
+            out.extend(c.to_uppercase());
+            upper = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 fn lookup<'a>(tree: &'a Value, path: &[String]) -> Option<&'a Value> {
