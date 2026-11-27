@@ -519,6 +519,30 @@ impl Sessions {
         self.lock().open.clone()
     }
 
+    /// Closes `session` if it is still open: stamps `closed_at` and moves it from the
+    /// open list to the ended one. Idempotent, so a read reaped while its handle was
+    /// still alive (idle timeout) is recorded once, when the handle drops.
+    pub fn close(&self, session: &Arc<Session>) {
+        if session.closed_at.set(SystemTime::now()).is_err() {
+            return;
+        }
+        let mut inner = self.lock();
+        inner.open.retain(|s| !Arc::ptr_eq(s, session));
+        if inner.ended.len() == KEPT_ENDED {
+            inner.ended.pop_front();
+        }
+        inner.ended.push_back(Arc::clone(session));
+        if let Some(trace) = &session.trace {
+            trace.record(Event::End {
+                bytes: session.served(),
+            });
+            if inner.finished.len() == KEPT_TRACES {
+                inner.finished.pop_front();
+            }
+            inner.finished.push_back(Arc::clone(session));
+        }
+    }
+
     /// Traced reads, open and finished, newest first.
     pub fn traced(&self) -> Vec<Arc<Session>> {
         let inner = self.lock();
@@ -607,23 +631,7 @@ impl Guard {
 
 impl Drop for Guard {
     fn drop(&mut self) {
-        let session = &self.session;
-        let _ = session.closed_at.set(SystemTime::now());
-        let mut inner = self.sessions.lock();
-        inner.open.retain(|s| !Arc::ptr_eq(s, session));
-        if inner.ended.len() == KEPT_ENDED {
-            inner.ended.pop_front();
-        }
-        inner.ended.push_back(Arc::clone(session));
-        if let Some(trace) = &session.trace {
-            trace.record(Event::End {
-                bytes: session.served(),
-            });
-            if inner.finished.len() == KEPT_TRACES {
-                inner.finished.pop_front();
-            }
-            inner.finished.push_back(Arc::clone(session));
-        }
+        self.sessions.close(&self.session);
     }
 }
 

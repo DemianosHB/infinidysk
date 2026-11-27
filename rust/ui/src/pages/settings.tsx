@@ -1237,6 +1237,31 @@ export function Settings() {
                     onChange={(download_key) => patch("webdav", { download_key })}
                   />
                 </SettingsPanel>
+                <SettingsPanel title="Playback">
+                  <Field
+                    id="dav-idle-timeout"
+                    layout="row"
+                    label={label(
+                      "Idle timeout (seconds)",
+                      "webdav.idle_timeout_seconds",
+                      "A player that stops reading a stream for this long is cut off, so the read closes and leaves Active Reads even while its connection stays open. 0 keeps streams open until the player disconnects.",
+                    )}
+                    hint="Applies to every newly opened stream; already open streams keep running."
+                    error={invalid("webdav.idle_timeout_seconds")}
+                  >
+                    <Input
+                      id="dav-idle-timeout"
+                      type="number"
+                      className="w-28 tabular-nums"
+                      min={0}
+                      max={600}
+                      required
+                      disabled={locked("webdav.idle_timeout_seconds")}
+                      value={draft.webdav.idle_timeout_seconds}
+                      onChange={(e) => patch("webdav", { idle_timeout_seconds: Number(e.target.value) })}
+                    />
+                  </Field>
+                </SettingsPanel>
                 <SettingsPanel title="Remote rclone mount">
                   <Toggle
                     id="rclone-rc-enabled"

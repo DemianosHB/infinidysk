@@ -9,8 +9,10 @@ mod body;
 use std::fmt::Write as _;
 use std::io::SeekFrom;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard};
+use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::Router;
@@ -20,8 +22,10 @@ use axum::http::{Extensions, HeaderMap, HeaderName, HeaderValue, Method, StatusC
 use axum::response::{IntoResponse, Response};
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
-use futures_util::{TryStreamExt as _, stream};
+use bytes::Bytes;
+use futures_util::{Stream, TryStreamExt as _, stream};
 use hmac::{Hmac, KeyInit as _, Mac as _};
+use infinidysk_core::wait::{age, now_ns};
 use infinidysk_queue::{Queue, Submission, service};
 use infinidysk_vfs::{Delivery, Kind, Node, Origin, Vfs};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
@@ -65,6 +69,8 @@ pub struct WebDav {
     pub queue: Arc<Queue>,
     /// Swapped when settings change.
     pub access: RwLock<Access>,
+    /// Seconds a streamed response may go unconsumed before the read is closed; 0 disables.
+    pub idle_timeout_secs: AtomicU64,
 }
 
 pub struct Access {
@@ -195,6 +201,19 @@ impl WebDav {
     fn access(&self) -> RwLockReadGuard<'_, Access> {
         self.access.read().unwrap_or_else(PoisonError::into_inner)
     }
+
+    /// Sets the idle timeout for streamed reads, in seconds; 0 disables it.
+    pub fn set_idle_timeout(&self, seconds: u64) {
+        self.idle_timeout_secs.store(seconds, Ordering::Relaxed);
+    }
+
+    /// The idle timeout for streamed reads, if enabled.
+    pub fn idle_timeout(&self) -> Option<Duration> {
+        match self.idle_timeout_secs.load(Ordering::Relaxed) {
+            0 => None,
+            secs => Some(Duration::from_secs(secs)),
+        }
+    }
 }
 
 pub fn router(state: Arc<WebDav>) -> Router {
@@ -253,7 +272,16 @@ async fn view(
     match resolve(&dav.vfs, path).await {
         Ok(Some(node)) => {
             let head = method == Method::HEAD;
-            get(&dav.vfs, &node, &headers, head, player, client).await
+            get(
+                &dav.vfs,
+                &node,
+                &headers,
+                head,
+                player,
+                client,
+                dav.idle_timeout(),
+            )
+            .await
         }
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(error) => failed(&error),
@@ -287,7 +315,16 @@ async fn dav(State(dav): State<Arc<WebDav>>, request: Request) -> Response {
             let peer = peer(request.extensions());
             let client = client(headers, peer, &dav.access().trusted_proxies);
             match resolve(&dav.vfs, &path).await {
-                Ok(Some(node)) => Ok(get(&dav.vfs, &node, headers, head, None, client).await),
+                Ok(Some(node)) => Ok(get(
+                    &dav.vfs,
+                    &node,
+                    headers,
+                    head,
+                    None,
+                    client,
+                    dav.idle_timeout(),
+                )
+                .await),
                 Ok(None) => Ok(StatusCode::NOT_FOUND.into_response()),
                 Err(error) => Err(error),
             }
@@ -611,6 +648,7 @@ async fn get(
     head: bool,
     player: Option<String>,
     client: String,
+    idle_timeout: Option<Duration>,
 ) -> Response {
     if node.kind() == Kind::Dir {
         return (StatusCode::METHOD_NOT_ALLOWED, [(header::ALLOW, ALLOW)]).into_response();
@@ -670,6 +708,7 @@ async fn get(
         Node::Item(item) | Node::IdFile(item) => vfs.coordinated_fence(item.id),
         _ => None,
     };
+    let session = reader.session().cloned();
     let mut reader = reader.take(end - start);
     let first = match body::chunk(&mut reader, fence.as_ref()).await {
         Ok(first) => first,
@@ -682,22 +721,94 @@ async fn get(
                 .into_response();
         }
     };
-    let body = Body::from_stream(
-        stream::try_unfold(
-            (reader, fence, first),
-            |(mut reader, fence, first)| async move {
-                let next = match first {
-                    Some(data) => Some(data),
-                    None => body::chunk(&mut reader, fence.as_ref()).await?,
-                };
-                Ok::<_, std::io::Error>(next.map(|data| (data, (reader, fence, None))))
-            },
-        )
-        .inspect_err(|error| {
-            tracing::warn!(reason = %error, "webdav read failed mid-stream");
-        }),
-    );
+    let chunks = stream::try_unfold(
+        (reader, fence, first),
+        |(mut reader, fence, first)| async move {
+            let next = match first {
+                Some(data) => Some(data),
+                None => body::chunk(&mut reader, fence.as_ref()).await?,
+            };
+            Ok::<_, std::io::Error>(next.map(|data| (data, (reader, fence, None))))
+        },
+    )
+    .inspect_err(|error| {
+        tracing::warn!(reason = %error, "webdav read failed mid-stream");
+    });
+    // A client that stops consuming the body while keeping its connection open must not
+    // pin the read forever: the watchdog reaps the session after `idle_timeout` without a
+    // poll, and the first poll after a long gap cuts the stream off, dropping the reader.
+    let last_poll = Arc::new(AtomicU64::new(now_ns()));
+    let done = Arc::new(AtomicBool::new(false));
+    if let Some(limit) = idle_timeout {
+        let sessions = Arc::clone(vfs.sessions());
+        let last_poll = Arc::clone(&last_poll);
+        let done = Arc::clone(&done);
+        tokio::spawn(async move {
+            let Some(session) = session else { return };
+            let tick = (limit / 2).max(Duration::from_millis(100));
+            loop {
+                tokio::time::sleep(tick).await;
+                if done.load(Ordering::Relaxed) {
+                    return;
+                }
+                if age(last_poll.load(Ordering::Relaxed)).is_some_and(|gap| gap >= limit) {
+                    tracing::warn!(
+                        seconds = limit.as_secs(),
+                        "webdav read reaped: the client stopped consuming the response"
+                    );
+                    sessions.close(&session);
+                    return;
+                }
+            }
+        });
+    }
+    let body = Body::from_stream(IdleWatch {
+        inner: Box::pin(chunks),
+        limit: idle_timeout,
+        last_poll,
+        done,
+    });
     (status, out, body).into_response()
+}
+
+/// Stamps every poll and, when one comes in after a gap of at least `limit`, ends the
+/// stream with a timeout error instead of serving a client that stalled.
+struct IdleWatch<S> {
+    inner: Pin<Box<S>>,
+    limit: Option<Duration>,
+    last_poll: Arc<AtomicU64>,
+    done: Arc<AtomicBool>,
+}
+
+impl<S> Stream for IdleWatch<S>
+where
+    S: Stream<Item = std::io::Result<Bytes>>,
+{
+    type Item = std::io::Result<Bytes>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        let last = this.last_poll.swap(now_ns(), Ordering::Relaxed);
+        if let Some(limit) = this.limit
+            && age(last).is_some_and(|gap| gap >= limit)
+        {
+            tracing::warn!(
+                seconds = limit.as_secs(),
+                "webdav read closed: the client stopped consuming the response"
+            );
+            return Poll::Ready(Some(Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "the client stopped consuming the response",
+            ))));
+        }
+        this.inner.as_mut().poll_next(cx)
+    }
+}
+
+impl<S> Drop for IdleWatch<S> {
+    fn drop(&mut self) {
+        self.done.store(true, Ordering::Relaxed);
+    }
 }
 
 /// `/nzbs/<category>/<file>` as `(category, file)`.

@@ -32,14 +32,30 @@ const ARTICLE: usize = 4096;
 /// `user:pass`.
 const BASIC: &str = "Basic dXNlcjpwYXNz";
 
-async fn setup(data: &[u8]) -> (LoopbackServer, Router, Item, [Arc<AtomicU64>; 2], Arc<Vfs>) {
+async fn setup(
+    data: &[u8],
+) -> (
+    LoopbackServer,
+    Router,
+    Item,
+    [Arc<AtomicU64>; 2],
+    Arc<Vfs>,
+    Arc<WebDav>,
+) {
     setup_timed(data, Duration::from_secs(5)).await
 }
 
 async fn setup_timed(
     data: &[u8],
     timeout: Duration,
-) -> (LoopbackServer, Router, Item, [Arc<AtomicU64>; 2], Arc<Vfs>) {
+) -> (
+    LoopbackServer,
+    Router,
+    Item,
+    [Arc<AtomicU64>; 2],
+    Arc<Vfs>,
+    Arc<WebDav>,
+) {
     setup_published(data, timeout, None).await
 }
 
@@ -47,7 +63,14 @@ async fn setup_published(
     data: &[u8],
     timeout: Duration,
     replacement: Option<&[u8]>,
-) -> (LoopbackServer, Router, Item, [Arc<AtomicU64>; 2], Arc<Vfs>) {
+) -> (
+    LoopbackServer,
+    Router,
+    Item,
+    [Arc<AtomicU64>; 2],
+    Arc<Vfs>,
+    Arc<WebDav>,
+) {
     let articles = post("a", "a.mkv", data, ARTICLE);
     let replacements =
         replacement.map_or_else(Vec::new, |bytes| post("published", "a.mkv", bytes, ARTICLE));
@@ -134,9 +157,10 @@ async fn setup_published(
         .with_repair_publisher(),
     );
     let (legacy, previous) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
-    let dav = WebDav {
+    let dav = Arc::new(WebDav {
         vfs: Arc::clone(&vfs),
         queue: Arc::new(Queue::new(db, client)),
+        idle_timeout_secs: AtomicU64::new(0),
         access: RwLock::new(Access {
             auth: Auth::Basic {
                 user: "user".into(),
@@ -149,8 +173,15 @@ async fn setup_published(
             legacy_strm: Some(Arc::clone(&legacy)),
             trusted_proxies: Vec::new(),
         }),
-    };
-    (server, router(Arc::new(dav)), file, [legacy, previous], vfs)
+    });
+    (
+        server,
+        router(Arc::clone(&dav)),
+        file,
+        [legacy, previous],
+        vfs,
+        dav,
+    )
 }
 
 async fn send(
@@ -184,7 +215,7 @@ async fn body(response: Response) -> Vec<u8> {
 async fn publication_waits_for_http_bytes_then_refreshes_the_remaining_response() {
     let data = vec![23; 4 * ARTICLE];
     let replacement = vec![47; data.len()];
-    let (_server, app, file, _, vfs) =
+    let (_server, app, file, _, vfs, _) =
         setup_published(&data, Duration::from_secs(5), Some(&replacement)).await;
     let fence = vfs.read_fence(file.id);
     let response = send(
@@ -261,7 +292,7 @@ async fn serves_the_tree_over_webdav() {
     let data: Vec<u8> = (0..3 * ARTICLE + 123)
         .map(|i| u8::try_from(i * 7 % 251).unwrap())
         .collect();
-    let (_server, app, file, [legacy, previous], _) = setup(&data).await;
+    let (_server, app, file, [legacy, previous], _, _) = setup(&data).await;
     let auth = [("authorization", BASIC)];
 
     let r = send(&app, "PROPFIND", "/", &[], Vec::new()).await;
@@ -488,7 +519,7 @@ async fn serves_the_tree_over_webdav() {
 #[tokio::test]
 async fn deleted_completed_links_go_while_content_stays() {
     let data = vec![7; ARTICLE + 5];
-    let (_server, app, _file, _, _) = setup(&data).await;
+    let (_server, app, _file, _, _, _) = setup(&data).await;
     let auth = [("authorization", BASIC)];
     let status = |method: &'static str, uri: &'static str| {
         let app = &app;
@@ -531,7 +562,7 @@ async fn deleted_completed_links_go_while_content_stays() {
 #[tokio::test]
 async fn unreachable_providers_answer_retryable_503_before_the_body() {
     let data = vec![7; 2 * ARTICLE];
-    let (server, app, _, _, _) = setup(&data).await;
+    let (server, app, _, _, _, _) = setup(&data).await;
     drop(server);
     let path = "/content/tv/my%20job/a.mkv";
     for range in [None, Some("bytes=4090-")] {
@@ -549,7 +580,7 @@ async fn webdav_stream_preserves_first_bytes_and_ranges() {
     let data: Vec<u8> = (0..150 * ARTICLE + 123)
         .map(|i| u8::try_from(i * 13 % 251).unwrap())
         .collect();
-    let (_server, app, _, _, _) = setup(&data).await;
+    let (_server, app, _, _, _, _) = setup(&data).await;
     let path = "/content/tv/my%20job/a.mkv";
     let r = send(&app, "GET", path, &[("authorization", BASIC)], Vec::new()).await;
     assert_eq!(r.status(), StatusCode::OK);
@@ -598,7 +629,7 @@ async fn a_read_failure_mid_body_logs_one_warning() {
     let data: Vec<u8> = (0..3 * ARTICLE)
         .map(|i| u8::try_from(i % 251).unwrap())
         .collect();
-    let (server, app, _, _, _) = setup_timed(&data, Duration::from_millis(200)).await;
+    let (server, app, _, _, _, _) = setup_timed(&data, Duration::from_millis(200)).await;
     let last = post("a", "a.mkv", &data, ARTICLE).pop().unwrap().message_id;
     server.stall_article(&last, usize::MAX, Duration::from_secs(30));
     let path = "/content/tv/my%20job/a.mkv";
@@ -617,5 +648,67 @@ async fn a_read_failure_mid_body_logs_one_warning() {
         warnings.0.lock().unwrap().len(),
         1,
         "one warning with a reason"
+    );
+}
+
+/// Waits until no read session is open, false on timeout.
+async fn until_reads_closed(vfs: &Vfs) -> bool {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !vfs.sessions().open().is_empty() {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .is_ok()
+}
+
+#[tokio::test]
+async fn an_idle_client_is_cut_off_and_its_read_session_closes() {
+    // Larger than the buffered chunks, so the producer blocks on sending to a client
+    // that stopped consuming the body but kept the response open.
+    let data: Vec<u8> = (0..600 * ARTICLE)
+        .map(|i| u8::try_from(i % 251).unwrap())
+        .collect();
+    let (_server, app, _file, _, vfs, dav) = setup(&data).await;
+    dav.set_idle_timeout(1);
+    let path = "/content/tv/my%20job/a.mkv";
+    let r = send(&app, "GET", path, &[("authorization", BASIC)], Vec::new()).await;
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(vfs.sessions().open().len(), 1);
+    let body = r.into_body();
+    assert!(
+        until_reads_closed(&vfs).await,
+        "the read session closed after the idle timeout"
+    );
+    // Polling again after the gap cuts the stream off instead of resuming it.
+    let rest = body.collect().await;
+    let cut = match rest {
+        Ok(bytes) => bytes.to_bytes().len() < data.len(),
+        Err(_) => true,
+    };
+    assert!(cut, "the response was cut short");
+}
+
+#[tokio::test]
+async fn a_stalled_client_keeps_its_read_open_while_the_timeout_is_disabled() {
+    let data: Vec<u8> = (0..600 * ARTICLE)
+        .map(|i| u8::try_from(i % 251).unwrap())
+        .collect();
+    let (_server, app, _file, _, vfs, dav) = setup(&data).await;
+    dav.set_idle_timeout(0);
+    let path = "/content/tv/my%20job/a.mkv";
+    let r = send(&app, "GET", path, &[("authorization", BASIC)], Vec::new()).await;
+    assert_eq!(r.status(), StatusCode::OK);
+    let body = r.into_body();
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(
+        vfs.sessions().open().len(),
+        1,
+        "still open while the timeout is disabled"
+    );
+    drop(body);
+    assert!(
+        until_reads_closed(&vfs).await,
+        "dropping the response ends the read"
     );
 }

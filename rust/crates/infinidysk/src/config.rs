@@ -73,6 +73,8 @@ const QUOTA_GB: RangeInclusive<u32> = 1..=u32::MAX;
 const RESET_DAY: RangeInclusive<u8> = 1..=31;
 /// Up to 100 Gbit/s.
 const DOWNLOAD_LIMIT_MB_PER_S: RangeInclusive<u32> = 1..=12_500;
+/// v1 `usenet.streaming-write-timeout-seconds`: 0 disables the timeout.
+const WEBDAV_IDLE_TIMEOUT_SECONDS: RangeInclusive<u32> = 0..=600;
 
 fn check<T: PartialOrd + fmt::Display + Copy>(
     path: &'static str,
@@ -1298,6 +1300,9 @@ pub struct WebDav {
     pub password: Secret,
     /// `downloadKey` that `/view` links must carry.
     pub download_key: Secret,
+    /// Seconds a streamed response may go unconsumed before the read is closed and its
+    /// session leaves the active reads; 0 disables. v1 `usenet.streaming-write-timeout-seconds`.
+    pub idle_timeout_seconds: u32,
 }
 
 impl Default for WebDav {
@@ -1306,6 +1311,7 @@ impl Default for WebDav {
             user: "admin".to_owned(),
             password: Secret::default(),
             download_key: Secret::default(),
+            idle_timeout_seconds: 60,
         }
     }
 }
@@ -1910,6 +1916,12 @@ impl Settings {
                 "WebDAV user must not be empty".to_owned(),
             ));
         }
+        check(
+            "webdav.idle_timeout_seconds",
+            "Idle timeout seconds",
+            self.webdav.idle_timeout_seconds,
+            &WEBDAV_IDLE_TIMEOUT_SECONDS,
+        )?;
         self.rclone_rc.validate()?;
         if self.sab.manual_category.trim().is_empty() {
             return Err(invalid(
