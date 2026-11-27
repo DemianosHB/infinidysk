@@ -337,6 +337,7 @@ async fn search_indexers(
                 .await
                 .is_err()
             {
+                tracing::warn!(indexer = %x.name, "Indexer search failed: rate limiter wait failed.");
                 return (
                     IndexerStatus {
                         name: x.name.clone(),
@@ -358,6 +359,7 @@ async fn search_indexers(
             ) {
                 Ok(c) => c.with_proxy(proxy.clone()),
                 Err(e) => {
+                    tracing::warn!(reason = %e, indexer = %x.name, "Indexer search failed: invalid indexer configuration.");
                     return (
                         IndexerStatus {
                             name: x.name.clone(),
@@ -374,7 +376,12 @@ async fn search_indexers(
                 Ok(items) => items,
                 Err(e) => {
                     let msg = match &e {
-                        infinidysk_indexer::Error::Indexer(m) => m.clone(),
+                        infinidysk_indexer::Error::Indexer(m) => {
+                            // Newznab <error> protocol element (e.g. "[100] ..."): a
+                            // known failure, logged like the response errors below.
+                            tracing::warn!(reason = %e, indexer = %x.name, "Indexer search failed.");
+                            m.clone()
+                        }
                         other => {
                             if matches!(
                                 other,
