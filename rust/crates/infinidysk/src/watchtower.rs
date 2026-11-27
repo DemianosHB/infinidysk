@@ -1047,7 +1047,7 @@ impl Watchtower {
     }
 
     /// Resolves a display title for an imdb-shaped content id via the shared
-    /// `ImdbTitleResolver` (TVmaze/Wikidata, cached), composing SxxEyy suffixes.
+    /// `ImdbTitleResolver` (`TVmaze`/`Wikidata`, cached), composing `SxxEyy` suffixes.
     async fn resolve_content_title(
         self: &Arc<Self>,
         r#type: &str,
@@ -3168,11 +3168,12 @@ async fn add_item(
     if content_id.is_empty() {
         return Err(bad_request("A content id (e.g. an imdb id) is required."));
     }
-    let title = match form
+    let form_title = form
         .get("title")
-        .map(|t| t.trim())
-        .filter(|t| !t.is_empty())
-    {
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
+    let title = match form_title {
         Some(t) if !is_unresolved_title(t, &content_id) => t.to_owned(),
         _ => state
             .resolve_content_title(r#type, &content_id, ct)
