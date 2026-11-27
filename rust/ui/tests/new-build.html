@@ -43,7 +43,7 @@
       client.setQueryData(["status"], { ui_entry: next });
       await new Promise(resolve => setTimeout(resolve, 50));
     });
-    check(document.querySelector('[data-slot="alert"]')?.textContent.includes("infinidysk was updated"),
+    check(document.querySelector('[data-slot="alert"]')?.textContent.includes("neodysk was updated"),
       "A genuine build mismatch must still warn");
     document.getElementById("result").textContent = "PASS";
   } catch (error) {

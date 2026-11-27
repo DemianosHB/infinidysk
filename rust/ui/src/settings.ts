@@ -83,7 +83,7 @@ export async function waitForRestart(
     }
   };
   for (;;) {
-    if (deadline != null && Date.now() >= deadline) throw new Error("infinidysk has not come back after 5 minutes; check its logs");
+    if (deadline != null && Date.now() >= deadline) throw new Error("neodysk has not come back after 5 minutes; check its logs");
     await new Promise((resolve) => setTimeout(resolve, pollMs));
     const status = await get(api.GET("/api/v1/status", { signal: AbortSignal.timeout(POLL_REQUEST_MS) }));
     if (status?.status === 401) return "signed-out";

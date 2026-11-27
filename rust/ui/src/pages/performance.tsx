@@ -231,7 +231,7 @@ export function PerformanceSettings({
               <Locked locked={locked("network.download_limit_mb_per_s")} />
             </>
           }
-          hint="Caps the combined download speed from all your Usenet providers, so infinidysk leaves room on a shared connection. Playback and imports share the cap; serving files to players is not limited."
+          hint="Caps the combined download speed from all your Usenet providers, so neodysk leaves room on a shared connection. Playback and imports share the cap; serving files to players is not limited."
           disabled={locked("network.download_limit_mb_per_s")}
           checked={limit != null}
           onChange={(on) => onLimit(on ? DEFAULT_DOWNLOAD_LIMIT : null)}
