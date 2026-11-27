@@ -57,7 +57,7 @@ export function PageLayout(props: PageLayoutProps) {
                     <p>
                       This installation of{" "}
                       <a
-                        href="https://www.infinidysk.com"
+                        href="https://github.com/DemianosHB/infinidysk"
                         target="_blank"
                         rel="noreferrer"
                         className="link link-hover font-semibold"

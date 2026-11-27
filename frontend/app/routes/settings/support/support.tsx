@@ -269,12 +269,12 @@ export function SupportSettings({
               </div>
             </SupportRow>
             <SupportRow label="GitHub repository">
-              <SupportLink href="https://github.com/infinidysk/infinidysk">
-                github.com/infinidysk/infinidysk
+              <SupportLink href="https://github.com/DemianosHB/infinidysk">
+                github.com/DemianosHB/infinidysk
               </SupportLink>
             </SupportRow>
             <SupportRow label="Releases">
-              <SupportLink href="https://github.com/infinidysk/infinidysk/releases">
+              <SupportLink href="https://github.com/DemianosHB/infinidysk/releases">
                 Release notes and downloads
               </SupportLink>
             </SupportRow>
@@ -290,12 +290,14 @@ export function SupportSettings({
               <SupportLink href="https://discord.gg/DAya7W6QMa">Join our Discord</SupportLink>
             </SupportRow>
             <SupportRow label="Issues and requests">
-              <SupportLink href="https://github.com/infinidysk/infinidysk/issues">
+              <SupportLink href="https://github.com/DemianosHB/infinidysk/issues">
                 Report a bug or request a feature
               </SupportLink>
             </SupportRow>
             <SupportRow label="Documentation">
-              <SupportLink href="https://www.infinidysk.com/">NeoDysk documentation</SupportLink>
+              <SupportLink href="https://github.com/DemianosHB/infinidysk#readme">
+                NeoDysk documentation (repository README)
+              </SupportLink>
             </SupportRow>
           </dl>
         </section>
@@ -313,7 +315,7 @@ export function SupportSettings({
           <dl className="divide-y divide-base-content/10 border-y border-base-content/10">
             <SupportRow label="Environment variables">
               <SupportLink href="https://www.infinidysk.com/configuration/environment-variables/">
-                Process, container, and legacy variables
+                Process, container, and legacy variables (upstream docs)
               </SupportLink>
               <p className="mt-1 text-xs leading-relaxed text-base-content/70">
                 Configuration paths, ports, time zone, logging, and authentication.
@@ -321,7 +323,7 @@ export function SupportSettings({
             </SupportRow>
             <SupportRow label="Headless settings">
               <SupportLink href="https://www.infinidysk.com/configuration/headless/">
-                Settings overrides and Docker Compose examples
+                Settings overrides and Docker Compose examples (upstream docs)
               </SupportLink>
             </SupportRow>
           </dl>

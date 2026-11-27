@@ -31,10 +31,10 @@ describe("SupportSettings", () => {
     expect(markup).toContain("xl:grid-cols-2");
     expect(markup).toContain("1.4.2");
     for (const href of [
-      "https://github.com/infinidysk/infinidysk",
-      "https://github.com/infinidysk/infinidysk/releases",
-      "https://github.com/infinidysk/infinidysk/issues",
-      "https://www.infinidysk.com/",
+      "https://github.com/DemianosHB/infinidysk",
+      "https://github.com/DemianosHB/infinidysk/releases",
+      "https://github.com/DemianosHB/infinidysk/issues",
+      "https://github.com/DemianosHB/infinidysk#readme",
       "https://www.infinidysk.com/configuration/environment-variables/",
       "https://www.infinidysk.com/configuration/headless/",
       "https://github.com/sponsors/hoivikaj",
