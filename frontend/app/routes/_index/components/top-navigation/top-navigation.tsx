@@ -73,7 +73,7 @@ export const TopNavigation = memo(function TopNavigation(props: TopNavigationPro
             alt=""
           />
           <span className="flex flex-col items-start leading-none">
-            <span className="text-xl font-bold tracking-tight text-primary">InfiniDysk</span>
+            <span className="text-xl font-bold tracking-tight text-primary">NeoDysk</span>
             <span className="mt-1 hidden text-[10px] font-medium tracking-wide text-base-content/60 sm:block">
               The NzbDAV SuperFork
             </span>

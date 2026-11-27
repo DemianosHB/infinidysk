@@ -636,7 +636,7 @@ export function IndexersSettings({
     <SettingsPage className="mb-6">
       <SettingsIntro>
         Configure shared search behavior, filter unwanted results, and manage the Newznab-compatible
-        indexers InfiniDysk queries.
+        indexers NeoDysk queries.
       </SettingsIntro>
 
       <SettingsCard
@@ -918,7 +918,7 @@ export function IndexersSettings({
 
         <HelpText className="sm:col-span-2">
           Synced entries point at Prowlarr's per-indexer Newznab proxy and are marked below.
-          Prowlarr owns their name, URL, API key, and enabled state; InfiniDysk keeps your rate
+          Prowlarr owns their name, URL, API key, and enabled state; NeoDysk keeps your rate
           limits, filters, category overrides, proxy, TLS, timeout, and user-agent tuning. Save
           changes before syncing.
         </HelpText>
@@ -1890,7 +1890,7 @@ function IndexerModal({ show, indexer, onClose, onSave }: IndexerModalProps) {
       {isProwlarrManaged && (
         <Alert variant="info" className="mb-4 text-xs">
           Prowlarr manages this indexer's name, URL, API key, and enabled state. Your changes to
-          those fields are overwritten on the next sync; InfiniDysk-specific tuning is preserved.
+          those fields are overwritten on the next sync; NeoDysk-specific tuning is preserved.
         </Alert>
       )}
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">

@@ -137,7 +137,7 @@ export function SupportSettings({
       anchor.remove();
       URL.revokeObjectURL(url);
       setMessage({
-        text: "Support pack downloaded. Share it only with trusted InfiniDysk support.",
+        text: "Support pack downloaded. Share it only with trusted NeoDysk support.",
         variant: "success",
       });
     } catch (error) {
@@ -247,7 +247,7 @@ export function SupportSettings({
       <div className="grid min-w-0 gap-x-8 gap-y-6 xl:grid-cols-2">
         <section aria-labelledby="support-about-heading" className="min-w-0">
           <h2 id="support-about-heading" className="mb-3 text-base font-semibold">
-            About InfiniDysk
+            About NeoDysk
           </h2>
           <dl className="divide-y divide-base-content/10 border-y border-base-content/10">
             <SupportRow label="Version">
@@ -295,7 +295,7 @@ export function SupportSettings({
               </SupportLink>
             </SupportRow>
             <SupportRow label="Documentation">
-              <SupportLink href="https://www.infinidysk.com/">InfiniDysk documentation</SupportLink>
+              <SupportLink href="https://www.infinidysk.com/">NeoDysk documentation</SupportLink>
             </SupportRow>
           </dl>
         </section>
@@ -329,7 +329,7 @@ export function SupportSettings({
 
         <section aria-labelledby="support-sponsor-heading" className="min-w-0">
           <h2 id="support-sponsor-heading" className="mb-3 text-base font-semibold">
-            Support InfiniDysk
+            Support NeoDysk
           </h2>
           <dl className="divide-y divide-base-content/10 border-y border-base-content/10">
             <SupportRow label="GitHub Sponsors">

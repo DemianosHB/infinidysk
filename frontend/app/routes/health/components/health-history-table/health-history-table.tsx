@@ -253,7 +253,7 @@ function HistoryRow({
         </PortalTooltip>
       )}
       {onDelete && (
-        <PortalTooltip content="Remove from InfiniDysk">
+        <PortalTooltip content="Remove from NeoDysk">
           <Button
             variant="ghost"
             className="btn-square hover:text-error max-sm:size-11"

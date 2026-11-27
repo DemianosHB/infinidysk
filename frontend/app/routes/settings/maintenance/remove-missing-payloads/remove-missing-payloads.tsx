@@ -60,7 +60,7 @@ export function RemoveMissingPayloads({ savedConfig }: RemoveMissingPayloadsProp
         const response = await fetch(withUrlBase(path), {
           method: "POST",
           ...(!dryRun && previewToken
-            ? { headers: { "X-InfiniDysk-Cleanup-Preview": previewToken } }
+            ? { headers: { "X-NeoDysk-Cleanup-Preview": previewToken } }
             : {}),
         });
         const body = (await response.json().catch(() => null)) as {

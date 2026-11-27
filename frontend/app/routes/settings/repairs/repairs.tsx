@@ -126,7 +126,7 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
                   className="text-[11px] leading-relaxed text-base-content/45"
                   id="library-dir-help"
                 >
-                  Path inside the InfiniDysk container to the parent of your Radarr/Sonarr root
+                  Path inside the NeoDysk container to the parent of your Radarr/Sonarr root
                   folders. Imported library entries there must be symlinks or *.strm files. Do not
                   use the rclone mount or a folder containing regular media files instead of links.
                 </p>
@@ -147,7 +147,7 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
                     onChange={(next) =>
                       setNewConfig({ ...config, "repair.healthcheck-schedule": next })
                     }
-                    description="When closed, InfiniDysk still admits urgent and already-deferred repairs. Use Run all checks now on the Health page to scan outside the window."
+                    description="When closed, NeoDysk still admits urgent and already-deferred repairs. Use Run all checks now on the Health page to scan outside the window."
                   />
                 </div>
               </ManagedSetting>
@@ -379,7 +379,7 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
                 Keep a file available for this long after its last read before automatic removal or
                 replacement. PAR2 can still repair it first. Default 15; maximum 1440. Set to 0 to
                 disable the hold. Pauses or cache-only playback beyond this time are not protected.
-                Recent-read history resets when InfiniDysk restarts.
+                Recent-read history resets when NeoDysk restarts.
               </p>
             </div>
           </ManagedSetting>

@@ -56,7 +56,7 @@ export function RemoveUnlinkedFiles({ savedConfig }: RemoveUnlinkedFilesProps) {
       try {
         const response = await fetch(url, {
           ...(!dryRun && previewToken
-            ? { headers: { "X-InfiniDysk-Cleanup-Preview": previewToken } }
+            ? { headers: { "X-NeoDysk-Cleanup-Preview": previewToken } }
             : {}),
         });
         const body = (await response.json().catch(() => null)) as {

@@ -243,7 +243,7 @@ export function ArrsSettings({ config, setNewConfig }: ArrsSettingsProps) {
   return (
     <SettingsPage>
       <SettingsIntro>
-        Connect supported Arr apps for automated replacement searches, then choose how InfiniDysk
+        Connect supported Arr apps for automated replacement searches, then choose how NeoDysk
         handles downloads stuck in their queues. Radarr and Sonarr are supported today, with room
         for additional Arr apps in the future.
       </SettingsIntro>
@@ -314,7 +314,7 @@ export function ArrsSettings({ config, setNewConfig }: ArrsSettingsProps) {
             <SettingsCard
               icon="monitor_heart"
               title="Arr Health"
-              description="Optional Overview metrics for import handoff from InfiniDysk to Sonarr and Radarr."
+              description="Optional Overview metrics for import handoff from NeoDysk to Sonarr and Radarr."
             >
               <Toggle
                 id="arr-health-enabled"
@@ -329,7 +329,7 @@ export function ArrsSettings({ config, setNewConfig }: ArrsSettingsProps) {
               />
               <p className="text-[11px] leading-relaxed text-base-content/45">
                 When this is off, enabled instances still handle queue rules and repairs, but
-                InfiniDysk does not poll Arr APIs for import health and hides the Overview widget.
+                NeoDysk does not poll Arr APIs for import health and hides the Overview widget.
                 The widget is also hidden when no instance is enabled.
               </p>
             </SettingsCard>
@@ -377,7 +377,7 @@ export function ArrsSettings({ config, setNewConfig }: ArrsSettingsProps) {
               </label>
               <p className="max-w-xl text-[11px] leading-relaxed text-base-content/55">
                 “Remove, Blocklist, and Search” is limited per movie or episode. When the limit is
-                reached, InfiniDysk still removes and blocklists the rejected release but does not
+                reached, NeoDysk still removes and blocklists the rejected release but does not
                 trigger another automatic search.
               </p>
             </div>

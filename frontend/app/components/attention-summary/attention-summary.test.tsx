@@ -53,7 +53,7 @@ describe("AttentionSummary", () => {
     ["degraded", true, true, 0, "This app reports queue warnings and errors."],
     ["degraded", false, false, 1, "Imports are taking longer than expected."],
     ["degraded", false, false, 0, "This Arr integration reports a degraded status."],
-    ["offline", false, false, 0, "InfiniDysk could not poll this instance."],
+    ["offline", false, false, 0, "NeoDysk could not poll this instance."],
   ] as const)(
     "explains %s status with warnings=%s, errors=%s, awaiting=%s in place",
     async (status, hasWarnings, hasErrors, awaitingCount, reason) => {

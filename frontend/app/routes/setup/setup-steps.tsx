@@ -90,7 +90,7 @@ export function LibraryTypeStep({
   const strategy = normalizeStrategy(draft.config["api.import-strategy"]);
   return (
     <StepSection
-      title="How will your media library consume InfiniDysk?"
+      title="How will your media library consume NeoDysk?"
       description="Choose the import shape used for future downloads. You can revisit this guide later."
     >
       <ManagedSetting configKey="api.import-strategy">
@@ -247,7 +247,7 @@ function SymlinkPlaybackStep({
   return (
     <StepSection
       title="Prepare the rclone playback path"
-      description="InfiniDysk will use rclone's bounded VFS cache for Plex/Silo playback and keep its own Segment Cache off."
+      description="NeoDysk will use rclone's bounded VFS cache for Plex/Silo playback and keep its own Segment Cache off."
     >
       <Alert variant="success" role="status" className="alert-soft items-start text-sm">
         <Icon name="check_circle" className="!text-[20px]" />
@@ -268,7 +268,7 @@ function SymlinkPlaybackStep({
           <p className="validator-hint hidden">
             The mounted WebDAV root is required for symlink imports.
           </p>
-          <HelpText>Use the same absolute path inside InfiniDysk, Radarr, and Sonarr.</HelpText>
+          <HelpText>Use the same absolute path inside NeoDysk, Radarr, and Sonarr.</HelpText>
         </Field>
       </ManagedSetting>
 
@@ -306,7 +306,7 @@ function SymlinkPlaybackStep({
               <code>--rc-no-auth</code> is suitable only on an isolated trusted container network.
               For authentication, replace it with <code>--rc-user</code> and <code>--rc-pass</code>,
               then enter the same values below. A separate sidecar must bind <code>:5572</code>; use{" "}
-              <code>127.0.0.1:5572</code> only when rclone and InfiniDysk share one network
+              <code>127.0.0.1:5572</code> only when rclone and NeoDysk share one network
               namespace.
             </span>
           </Alert>
@@ -415,7 +415,7 @@ function StrmPlaybackStep({ draft, updateDraft }: { draft: SetupDraft; updateDra
   return (
     <StepSection
       title="Configure direct STRM playback"
-      description="Generated .strm files point Emby or Jellyfin back to InfiniDysk over HTTP."
+      description="Generated .strm files point Emby or Jellyfin back to NeoDysk over HTTP."
     >
       <Alert variant="success" role="status" className="alert-soft items-start text-sm">
         <Icon name="cached" className="!text-[20px]" />
@@ -454,7 +454,7 @@ function StrmPlaybackStep({ draft, updateDraft }: { draft: SetupDraft; updateDra
             className="validator w-full"
             type="url"
             required
-            placeholder="http://infinidysk:3000"
+            placeholder="http://neodysk:3000"
             value={draft.config["general.base-url"] ?? ""}
             onChange={(event) => updateConfig(updateDraft, "general.base-url", event.target.value)}
           />
@@ -491,7 +491,7 @@ export function IngestionStep({
 
   return (
     <StepSection
-      title="How will content reach InfiniDysk?"
+      title="How will content reach NeoDysk?"
       description="Select every workflow you plan to use. You can configure advanced search behavior later."
     >
       <fieldset className="fieldset">
@@ -509,7 +509,7 @@ export function IngestionStep({
             id="setup-ingestion-search"
             icon="search"
             title="Built-in Search"
-            detail="Search configured indexers from InfiniDysk."
+            detail="Search configured indexers from NeoDysk."
             checked={draft.ingestionMethods.includes("search")}
             onChange={(checked) => toggleMethod("search", checked)}
           />
@@ -817,7 +817,7 @@ function ArrDownloadClientInstructions({
   return (
     <details className="collapse collapse-arrow border border-base-content/10 bg-base-200/40">
       <summary className="collapse-title text-sm font-semibold">
-        Add InfiniDysk to each Arr app
+        Add NeoDysk to each Arr app
       </summary>
       <div className="collapse-content space-y-4 text-sm">
         <ol className="list-decimal space-y-2 pl-5 text-base-content/80">
@@ -843,7 +843,7 @@ function ArrDownloadClientInstructions({
           </div>
         </div>
         <div>
-          <Label htmlFor="setup-sab-api-key">InfiniDysk API key</Label>
+          <Label htmlFor="setup-sab-api-key">NeoDysk API key</Label>
           <div className="join w-full">
             <Input
               id="setup-sab-api-key"
@@ -882,7 +882,7 @@ export function BackupStep({
   return (
     <StepSection
       title="Protect your configuration"
-      description="InfiniDysk can create a logical backup once per day and retain a bounded number of snapshots."
+      description="NeoDysk can create a logical backup once per day and retain a bounded number of snapshots."
     >
       {mainDatabaseProvider === "postgres" && (
         <Alert variant="warning" role="note" className="alert-soft items-start text-sm">
@@ -968,7 +968,7 @@ export function LibraryDirectoryStep({
             onChange={(event) => updateConfig(updateDraft, "media.library-dir", event.target.value)}
           />
           <HelpText>
-            Use the parent of your Radarr and Sonarr root folders, visible inside the InfiniDysk
+            Use the parent of your Radarr and Sonarr root folders, visible inside the NeoDysk
             container. Do not use the rclone mount.
           </HelpText>
         </Field>

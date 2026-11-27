@@ -28,7 +28,7 @@ describe("SABnzbd import strategy", () => {
         ...config,
         "api.import-strategy": "strm",
         "api.completed-downloads-dir": "/mnt/jellyfin",
-        "general.base-url": "https://infinidysk.example",
+        "general.base-url": "https://neodysk.example",
       }),
     ).toBe(true);
   });
@@ -46,7 +46,7 @@ describe("SABnzbd import strategy", () => {
         ...config,
         "api.import-strategy": "STRM",
         "api.completed-downloads-dir": "/mnt/jellyfin",
-        "general.base-url": "https://infinidysk.example",
+        "general.base-url": "https://neodysk.example",
       }),
     ).toBe(true);
   });

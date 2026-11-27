@@ -62,7 +62,7 @@ export function SabnzbdSettings({ config, setNewConfig }: SabnzbdSettingsProps) 
               </Button>
             </div>
             <p className="text-[11px] leading-relaxed text-base-content/45" id="api-key-help">
-              Use this API key when configuring InfiniDysk as a download client in Radarr or Sonarr.
+              Use this API key when configuring NeoDysk as a download client in Radarr or Sonarr.
             </p>
           </div>
         </ManagedSetting>
@@ -174,7 +174,7 @@ export function SabnzbdSettings({ config, setNewConfig }: SabnzbdSettingsProps) 
               id="import-strategy-help"
             >
               Use symlinks for Plex with an rclone WebDAV mount. Use STRM files for Emby or Jellyfin
-              when those servers can stream directly from InfiniDysk.
+              when those servers can stream directly from NeoDysk.
             </p>
           </div>
         </ManagedSetting>

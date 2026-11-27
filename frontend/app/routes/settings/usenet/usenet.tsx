@@ -2123,7 +2123,7 @@ function ProviderModal({
                 <Label htmlFor="provider-max-connections">Provider Connection Limit</Label>
                 <Tooltip
                   placement="bottom"
-                  content="The absolute maximum number of NNTP connections InfiniDysk may use for this provider account."
+                  content="The absolute maximum number of NNTP connections NeoDysk may use for this provider account."
                 >
                   <Icon name="info" className="!text-[15px] text-base-content/45" />
                 </Tooltip>

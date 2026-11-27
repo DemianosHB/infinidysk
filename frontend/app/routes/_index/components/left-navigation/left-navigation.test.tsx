@@ -28,7 +28,7 @@ describe("LeftNavigation settings groups", () => {
     );
     render(<RouterProvider router={router} />);
     const trigger = screen.getByRole("link", {
-      name: `InfiniDysk ${version}. Support and about. Update available`,
+      name: `NeoDysk ${version}. Support and about. Update available`,
     });
     expect(trigger.textContent).toContain(version);
     expect(trigger.closest("footer")?.className).toContain("shrink-0");

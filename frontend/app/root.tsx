@@ -116,7 +116,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>InfiniDysk</title>
+        <title>NeoDysk</title>
         <meta
           name="description"
           content="The NzbDAV SuperFork — stream media directly from Usenet."
@@ -244,7 +244,7 @@ export function ErrorBoundary() {
   if (isBackendUnavailable) {
     title = "Backend temporarily unavailable";
     detail =
-      "The InfiniDysk backend is still starting up or is busy processing a large queue. Wait a moment and refresh the page.";
+      "The NeoDysk backend is still starting up or is busy processing a large queue. Wait a moment and refresh the page.";
   } else if (isRouteErrorResponse(error)) {
     title = `${error.status} ${error.statusText}`;
     detail = typeof error.data === "string" ? error.data : "";

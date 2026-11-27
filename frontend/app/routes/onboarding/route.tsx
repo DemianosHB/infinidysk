@@ -48,10 +48,10 @@ export default function Index({ loaderData, actionData }: Route.ComponentProps) 
                 <img
                   className="h-16 w-16 rounded-2xl bg-gradient-to-br from-primary via-info to-success p-0.5 shadow-lg shadow-primary/20"
                   src={withUrlBase("/logo.png")}
-                  alt="InfiniDysk"
+                  alt="NeoDysk"
                 />
                 <div>
-                  <h1 className="text-2xl font-bold tracking-tight text-primary">InfiniDysk</h1>
+                  <h1 className="text-2xl font-bold tracking-tight text-primary">NeoDysk</h1>
                   <p className="mt-1 text-xs font-medium tracking-wide text-base-content/50">
                     The NzbDAV SuperFork
                   </p>
@@ -66,7 +66,7 @@ export default function Index({ loaderData, actionData }: Route.ComponentProps) 
                 <Alert variant="info">
                   <div>
                     <p className="font-semibold">Welcome!</p>
-                    <p>Create credentials for managing your InfiniDysk server.</p>
+                    <p>Create credentials for managing your NeoDysk server.</p>
                   </div>
                 </Alert>
               )}

@@ -48,7 +48,7 @@ export function ArrHealth({ data, window }: ArrHealthProps) {
           <div>
             <h3 className="card-title text-base">Arr Health</h3>
             <p className="text-xs text-base-content/50">
-              InfiniDysk completion → Sonarr/Radarr import, {sinceLabel}
+              NeoDysk completion → Sonarr/Radarr import, {sinceLabel}
             </p>
           </div>
           <div className="card-actions m-0">

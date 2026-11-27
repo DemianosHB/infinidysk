@@ -349,7 +349,7 @@ function GeneralSettings({
       <SettingsCard
         icon="lan"
         title="Reverse proxy"
-        description="Control whether InfiniDysk accepts proxy-supplied origin and client address headers."
+        description="Control whether NeoDysk accepts proxy-supplied origin and client address headers."
       >
         <ManagedSetting configKey="general.trust-proxy">
           <div className="space-y-2">
@@ -366,7 +366,7 @@ function GeneralSettings({
               label={<span className="text-sm text-base-content">Trust reverse-proxy headers</span>}
             />
             <p className="text-[11px] leading-relaxed text-base-content/45">
-              Enable only when every connection reaches InfiniDysk through your trusted proxy. This
+              Enable only when every connection reaches NeoDysk through your trusted proxy. This
               accepts forwarded scheme, host, and client IP values and applies immediately.
             </p>
           </div>

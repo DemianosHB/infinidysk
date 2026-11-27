@@ -446,7 +446,7 @@ function LegacyBody(props: ExplorePageData) {
 
   return (
     <div className="absolute flex min-h-full min-w-full flex-col px-4 py-4 text-base text-base-content/70 md:px-8">
-      <PageHeader title="Explorer" subtitle="Browse the WebDAV tree served by InfiniDysk." />
+      <PageHeader title="Explorer" subtitle="Browse the WebDAV tree served by NeoDysk." />
       <Breadcrumbs parentDirectories={parentDirectories} />
       {!showSkeleton && props.error === "not-found" && (
         <div className="card bg-base-200 border-base-content/10 my-4 min-h-[320px] shadow-md">

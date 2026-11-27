@@ -27,7 +27,7 @@ describe("SupportSettings", () => {
 
   it("shows the installed version, project resources, environment guidance, and official sponsor links", () => {
     const markup = renderToStaticMarkup(<SupportSettings version="1.4.2" />);
-    expect(markup).toContain("About InfiniDysk");
+    expect(markup).toContain("About NeoDysk");
     expect(markup).toContain("xl:grid-cols-2");
     expect(markup).toContain("1.4.2");
     for (const href of [

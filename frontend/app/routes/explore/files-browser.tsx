@@ -487,7 +487,7 @@ export function FilesBrowser(props: Props) {
     <section className="flex min-h-full min-w-0 flex-col gap-4 px-4 py-4 text-sm text-base-content md:px-8">
       <PageHeader
         title="Explorer"
-        subtitle="Browse, health-check, and manage the files InfiniDysk serves over WebDAV."
+        subtitle="Browse, health-check, and manage the files NeoDysk serves over WebDAV."
         actions={
           <details className="dropdown dropdown-end">
             <summary className="btn btn-ghost btn-sm">
@@ -752,7 +752,7 @@ export function FilesBrowser(props: Props) {
                 {searchTarget.path}
               </p>
               <p className="text-sm text-base-content/70">
-                Enabled Arr instances owning this file will be searched. InfiniDysk will not remove
+                Enabled Arr instances owning this file will be searched. NeoDysk will not remove
                 or blocklist the current file. Arr quality, cutoff, and monitoring rules still
                 apply; a replacement download is not guaranteed.
               </p>

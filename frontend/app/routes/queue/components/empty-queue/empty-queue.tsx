@@ -14,7 +14,7 @@ export function EmptyQueue({ onClearFilters }: { onClearFilters?: (() => void) |
         <p className="max-w-sm text-xs leading-relaxed text-base-content/60">
           {onClearFilters
             ? "Try a different search, category, or status, or clear the filters to see every job."
-            : "Upload an NZB, or send jobs from Sonarr or Radarr using InfiniDysk as the download client. Active jobs sit at the top of this list; finished jobs stay here as history."}
+            : "Upload an NZB, or send jobs from Sonarr or Radarr using NeoDysk as the download client. Active jobs sit at the top of this list; finished jobs stay here as history."}
         </p>
         {onClearFilters && (
           <div className="card-actions mt-2">

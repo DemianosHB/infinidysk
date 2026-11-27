@@ -117,7 +117,7 @@ export function RcloneSettings({ config, setNewConfig }: RcloneSettingsProps) {
   return (
     <SettingsPage>
       <SettingsIntro>
-        Connect InfiniDysk to an rclone Remote Control server so mounted directory caches can be
+        Connect NeoDysk to an rclone Remote Control server so mounted directory caches can be
         refreshed automatically when files change.
       </SettingsIntro>
 
@@ -238,7 +238,7 @@ export function RcloneSettings({ config, setNewConfig }: RcloneSettingsProps) {
               )}
               <p className="text-[11px] leading-relaxed text-base-content/45" id="rclone-host-help">
                 Use the rclone container&apos;s service name and RC port. Loopback addresses only
-                work when rclone shares InfiniDysk&apos;s network namespace.
+                work when rclone shares NeoDysk&apos;s network namespace.
               </p>
             </div>
           </ManagedSetting>

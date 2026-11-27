@@ -78,7 +78,7 @@ describe("RemoveUnlinkedFiles", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/remove-unlinked-files", {
-      headers: { "X-InfiniDysk-Cleanup-Preview": "approval-token" },
+      headers: { "X-NeoDysk-Cleanup-Preview": "approval-token" },
     });
   });
 });

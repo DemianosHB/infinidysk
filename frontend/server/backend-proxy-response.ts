@@ -90,7 +90,7 @@ function renderFileUnavailablePage(explorePaths: { directory: string; root: stri
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>File unavailable · InfiniDysk</title>
+  <title>File unavailable · NeoDysk</title>
   <style>
     :root { color-scheme: dark; }
     body { align-items: center; background: #111827; color: #f9fafb; display: flex; font-family: ui-sans-serif, system-ui, sans-serif; justify-content: center; margin: 0; min-height: 100vh; padding: 1.5rem; }

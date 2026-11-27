@@ -62,7 +62,7 @@ export function PageLayout(props: PageLayoutProps) {
                         rel="noreferrer"
                         className="link link-hover font-semibold"
                       >
-                        InfiniDysk
+                        NeoDysk
                       </a>{" "}
                       is powered by{" "}
                       <a

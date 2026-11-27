@@ -221,7 +221,7 @@ export default function Health({ loaderData }: Route.ComponentProps) {
       setDeleteItem(null);
       setRequeueFeedback({
         variant: "success",
-        message: "File removed from InfiniDysk. No replacement search was requested.",
+        message: "File removed from NeoDysk. No replacement search was requested.",
       });
       void revalidator.revalidate();
     } catch (error) {
@@ -629,7 +629,7 @@ export default function Health({ loaderData }: Route.ComponentProps) {
       <HealthStats stats={historyStats} />
       <Modal
         open={deleteItem !== null}
-        title="Remove from InfiniDysk?"
+        title="Remove from NeoDysk?"
         preventClose={deleting}
         onClose={() => setDeleteItem(null)}
         footer={

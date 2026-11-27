@@ -233,7 +233,7 @@ export default function SetupRoute({ loaderData }: Route.ComponentProps) {
               >
                 <Icon name="restart_alt" className="!text-[20px]" />
                 <span>
-                  Restart InfiniDysk before testing playback so the Segment Cache change takes
+                  Restart NeoDysk before testing playback so the Segment Cache change takes
                   effect.
                 </span>
               </Alert>
@@ -247,7 +247,7 @@ export default function SetupRoute({ loaderData }: Route.ComponentProps) {
                 variant="primary"
                 onClick={() => void navigate(loaderData.returnTo, { replace: true })}
               >
-                Continue to InfiniDysk
+                Continue to NeoDysk
                 <Icon name="arrow_forward" className="!text-[18px]" />
               </Button>
             </div>

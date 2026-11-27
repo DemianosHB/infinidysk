@@ -277,7 +277,7 @@ export function AttentionSummary({
                     </p>
                     <p className="text-base-content/80">
                       {instance.status === "offline"
-                        ? "InfiniDysk could not poll this instance. Check its availability and connection settings."
+                        ? "NeoDysk could not poll this instance. Check its availability and connection settings."
                         : instance.hasWarnings && instance.hasErrors
                           ? "This app reports queue warnings and errors. Check Activity > Queue in the Arr app."
                           : instance.hasErrors

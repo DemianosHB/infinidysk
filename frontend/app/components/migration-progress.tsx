@@ -256,7 +256,7 @@ export function MigrationBoundary({ fallback }: { fallback: FallbackProps }) {
   if (phase === "checking" || phase === "connecting") {
     return (
       <MigrationShell
-        title={seenMigration.current ? "Finishing up" : "Connecting to InfiniDysk"}
+        title={seenMigration.current ? "Finishing up" : "Connecting to NeoDysk"}
         subtitle={
           seenMigration.current
             ? "Database maintenance finished. Waiting for the server to start..."
@@ -308,10 +308,10 @@ export function MigrationProgressView({ status }: { status: MigrationStatus }) {
 
   let title = "Database maintenance in progress";
   let subtitle =
-    "InfiniDysk is upgrading your database. This is a one-time step after an update and can take a while on large libraries. The app will load automatically when it finishes.";
+    "NeoDysk is upgrading your database. This is a one-time step after an update and can take a while on large libraries. The app will load automatically when it finishes.";
   if (done) {
     title = "Maintenance complete";
-    subtitle = "Starting InfiniDysk...";
+    subtitle = "Starting NeoDysk...";
   } else if (failed) {
     title = "Database maintenance failed";
     subtitle = "The upgrade could not be completed. Check the container logs for details.";
@@ -416,7 +416,7 @@ export function MigrationShell({
               <img
                 className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary via-info to-success p-0.5 shadow-md shadow-primary/20"
                 src={withUrlBase("/logo.png")}
-                alt="InfiniDysk"
+                alt="NeoDysk"
               />
               <div className="space-y-1">
                 <h1 className="text-xl font-bold tracking-tight">{title}</h1>

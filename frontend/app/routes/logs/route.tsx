@@ -453,7 +453,7 @@ export default function Logs({ loaderData }: Route.ComponentProps) {
             </h2>
             <p className="text-xs text-base-content/60">
               {totalInBuffer === 0
-                ? "New entries stream in here as InfiniDysk logs them."
+                ? "New entries stream in here as NeoDysk logs them."
                 : filtersActive
                   ? "Widen the level, search, or source filters to see more."
                   : "The view is clear. New entries will appear here live."}

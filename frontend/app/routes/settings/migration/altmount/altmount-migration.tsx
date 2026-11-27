@@ -50,13 +50,13 @@ const STEPS = ["Connect", "Categories", "Scan", "Review", "Run", "Links"] as con
 const LINK_STEP = 5;
 
 const SYMLINK_STATUS_HELP: Record<string, string> = {
-  rewrite: "Points to Altmount and has a verified InfiniDysk replacement.",
-  orphan: "Points to Altmount, but no safe InfiniDysk match was found.",
+  rewrite: "Points to Altmount and has a verified NeoDysk replacement.",
+  orphan: "Points to Altmount, but no safe NeoDysk match was found.",
   unreadable:
     "Found in the library, but its target could not be read or classified. It remains unchanged and may still point at Altmount.",
-  "already-nzbdav": "Already points to InfiniDysk, so no change is needed.",
+  "already-nzbdav": "Already points to NeoDysk, so no change is needed.",
   "not-altmount": "Does not point to Altmount and will be left unchanged.",
-  applied: "Successfully repointed to InfiniDysk.",
+  applied: "Successfully repointed to NeoDysk.",
   failed: "A rewrite was attempted but could not be completed.",
   removed: "The orphaned Altmount symlink was removed after its original target was backed up.",
 };
@@ -65,7 +65,7 @@ const SYMLINK_STATUS_LABELS: Record<string, string> = {
   rewrite: "Rewrite",
   orphan: "Orphan",
   unreadable: "Unreadable",
-  "already-nzbdav": "InfiniDysk",
+  "already-nzbdav": "NeoDysk",
   "not-altmount": "Other",
   applied: "Applied",
   failed: "Failed",
@@ -91,7 +91,7 @@ const MATCH_METHODS: Record<string, { label: string; help: string }> = {
   },
   "single-leaf-fallback": {
     label: "single file",
-    help: "Matched because the release had only one source file and one InfiniDysk file.",
+    help: "Matched because the release had only one source file and one NeoDysk file.",
   },
 };
 
@@ -151,9 +151,9 @@ export function AltmountMigration() {
   return (
     <div className="flex w-full flex-col gap-6">
       <SettingsIntro>
-        Import an existing Altmount library into InfiniDysk by re-submitting each release through
-        InfiniDysk's own download pipeline. Connect to the library, map categories, scan and review,
-        then run the migration. Nothing in your current InfiniDysk content is modified. This path is
+        Import an existing Altmount library into NeoDysk by re-submitting each release through
+        NeoDysk's own download pipeline. Connect to the library, map categories, scan and review,
+        then run the migration. Nothing in your current NeoDysk content is modified. This path is
         experimental — verify a few releases play correctly before decommissioning AltMount.
       </SettingsIntro>
 
@@ -350,7 +350,7 @@ function ConnectStep({ m }: { m: Hook }) {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <NumberField
                 label="Max Queue Depth"
-                help="Upper bound on releases queued into InfiniDysk at once."
+                help="Upper bound on releases queued into NeoDysk at once."
                 value={form.maxQueueDepth}
                 min={1}
                 max={500}
@@ -483,7 +483,7 @@ function CategoriesStep({ m, onDone }: { m: Hook; onDone: () => void }) {
     <Section
       icon="category"
       title="Map categories"
-      subtitle="Choose the InfiniDysk target category for each Altmount category, or exclude it."
+      subtitle="Choose the NeoDysk target category for each Altmount category, or exclude it."
     >
       {draft.length === 0 ? (
         <EmptyHint
@@ -496,7 +496,7 @@ function CategoriesStep({ m, onDone }: { m: Hook; onDone: () => void }) {
             <thead>
               <tr>
                 <th>Altmount category</th>
-                <th>Target InfiniDysk category</th>
+                <th>Target NeoDysk category</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -731,13 +731,13 @@ function ReviewStep({ m, onRun }: { m: Hook; onRun: () => void }) {
         message={
           onlyAlreadyMigrated ? (
             <>
-              All included releases are already present in InfiniDysk. Nothing will be submitted;
+              All included releases are already present in NeoDysk. Nothing will be submitted;
               continue to the optional symlink step using the saved mappings.
             </>
           ) : (
             <>
-              This queues {summary?.counts.submittable ?? 0} release(s) into InfiniDysk's download
-              pipeline. Your existing InfiniDysk content is untouched. You can pause at any time.
+              This queues {summary?.counts.submittable ?? 0} release(s) into NeoDysk's download
+              pipeline. Your existing NeoDysk content is untouched. You can pause at any time.
             </>
           )
         }
@@ -1138,7 +1138,7 @@ function RunStep({ m, onLinks }: { m: Hook; onLinks: () => void }) {
             Rewrite library symlinks
           </Button>
           <span className="text-xs text-base-content/50">
-            Optional — repoint Sonarr/Radarr/Plex symlinks at InfiniDysk so nothing needs
+            Optional — repoint Sonarr/Radarr/Plex symlinks at NeoDysk so nothing needs
             re-importing.
           </span>
         </div>
@@ -1239,7 +1239,7 @@ function SymlinkStep({ m }: { m: Hook }) {
       <Section
         icon="link"
         title="Rewrite library symlinks (optional)"
-        subtitle="Repoint your Sonarr/Radarr/Plex symlinks from Altmount to InfiniDysk so the migrated content is used with no re-import."
+        subtitle="Repoint your Sonarr/Radarr/Plex symlinks from Altmount to NeoDysk so the migrated content is used with no re-import."
       >
         <Alert className="alert-soft mb-4 text-sm" variant="info">
           <Icon name="info" className="!text-[18px]" />
@@ -1427,7 +1427,7 @@ function SymlinkResults({ m }: { m: Hook }) {
           />
         )}
         <StatTile
-          label="InfiniDysk"
+          label="NeoDysk"
           value={counts["already-nzbdav"] ?? 0}
           help={SYMLINK_STATUS_HELP["already-nzbdav"]}
         />
@@ -1523,7 +1523,7 @@ function SymlinkResults({ m }: { m: Hook }) {
           <option value="rewrite">Rewrite</option>
           <option value="orphan">Orphan</option>
           <option value="unreadable">Unreadable</option>
-          <option value="already-nzbdav">InfiniDysk</option>
+          <option value="already-nzbdav">NeoDysk</option>
           <option value="not-altmount">Other</option>
           <option value="applied">Applied</option>
           <option value="failed">Failed</option>
@@ -1657,7 +1657,7 @@ function SymlinkResults({ m }: { m: Hook }) {
         title="Apply symlink rewrites"
         message={
           <>
-            This repoints {rewrites} symlink(s) from Altmount to InfiniDysk. A restore tarball is
+            This repoints {rewrites} symlink(s) from Altmount to NeoDysk. A restore tarball is
             written first, and only symlinks are changed — never the files they point at. Continue?
           </>
         }
@@ -1685,7 +1685,7 @@ function SymlinkResults({ m }: { m: Hook }) {
           <>
             This deletes {orphans} symlink entry(s) from your media library, so those paths will
             appear missing to Sonarr, Radarr, Plex, and other applications. It does not delete files
-            stored by Altmount or InfiniDysk, and it does not tell your Arr applications to search
+            stored by Altmount or NeoDysk, and it does not tell your Arr applications to search
             or re-grab them. A verified restore archive is written first, and only links still
             pointing to the Altmount target recorded by this plan are removed. Real files, changed
             links, unreadable links, and target data remain untouched.
@@ -1867,7 +1867,7 @@ function SymlinkRestoreAction({ m, onRestored }: { m: Hook; onRestored: () => vo
             <>
               Restore {archive?.entryCount ?? 0} symlink(s) from{" "}
               <span className="font-mono">{archive?.fileName}</span>? Links still pointing at their
-              recorded InfiniDysk targets are restored, and missing links can be recreated. Real
+              recorded NeoDysk targets are restored, and missing links can be recreated. Real
               files, link targets, and links changed after the rewrite are never overwritten.
             </>
           )
@@ -1922,7 +1922,7 @@ function HistoryCleanupAction({ m }: { m: Hook }) {
         title="Clear migration history"
         message={
           <>
-            This removes {pending} completed migration item(s) from SAB history. Migrated InfiniDysk
+            This removes {pending} completed migration item(s) from SAB history. Migrated NeoDysk
             files remain mounted and are never deleted. Continue?
           </>
         }
@@ -2061,7 +2061,7 @@ function ResetFooter({ m }: { m: Hook }) {
         message={
           <>
             This clears the current scan results, category map, symlink plan, and connection.
-            Completed migration mappings and all InfiniDysk content are preserved.
+            Completed migration mappings and all NeoDysk content are preserved.
           </>
         }
         cancelText="Cancel"
@@ -2078,7 +2078,7 @@ function ResetFooter({ m }: { m: Hook }) {
         message={
           <>
             This permanently removes the migration run, release, and file mappings used to connect
-            symlinks across runs. Mounted InfiniDysk content, SAB history, and symlinks already
+            symlinks across runs. Mounted NeoDysk content, SAB history, and symlinks already
             rewritten will remain safe and unchanged.
           </>
         }
