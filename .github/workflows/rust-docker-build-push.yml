@@ -8,10 +8,9 @@ name: Rust Docker build and push
 # runner) — no QEMU emulation, which made the combined multi-arch build take over an
 # hour. Each leg pushes its image by digest; a final job assembles the multi-arch
 # manifest for the tag (and "latest").
-# Triggers:
-#   - push to rust                -> rolling "rust-dev" image (plus "latest")
-#   - push of a tag starting "v2*" -> versioned image named after the tag
-#   - manual dispatch              -> optional tag/ref inputs
+# Triggers (tag-only: branch pushes to rust do not build, to save runner time):
+#   - push of a tag starting "v2*" -> versioned image named after the tag (plus "latest")
+#   - manual dispatch              -> optional tag/ref inputs (empty tag on a branch = "rust-dev")
 # GITHUB_TOKEN with packages:write is enough for GHCR.
 
 on:
@@ -26,13 +25,8 @@ on:
         required: false
         default: ""
   push:
-    branches:
-      - rust
     tags:
       - "v2*"
-    paths:
-      - "rust/**"
-      - ".github/workflows/rust-docker-build-push.yml"
 
 permissions:
   contents: read
@@ -70,7 +64,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$REF_TYPE" = "branch" ] && [ -z "${{ inputs.tag }}" ]; then
-            # Rolling tag: branch pushes always build the current fork state.
+            # Rolling tag: only reachable via manual dispatch on a branch without a tag input.
             tag="rust-dev"
           else
             # Tag pushes and manual dispatches use the tag name as given.
@@ -106,7 +100,7 @@ jobs:
             VERSION=${{ steps.vars.outputs.version }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-          # Fixed scope per platform, so tag builds reuse the cache warmed by branch builds.
+          # Fixed scope per platform, so repeated builds reuse the warmed cache.
           cache-from: type=gha,scope=rust-docker-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=rust-docker-${{ matrix.platform }}
 
