@@ -397,6 +397,62 @@ async fn content_type_reflecting_key_is_sanitized_to_unknown() {
 }
 
 #[tokio::test]
+async fn char_refs_and_predefined_entities_resolve_like_dotnet() {
+    // quick-xml splits every `&...;` in text into a GeneralRef event; numeric character
+    // references (common in RSS titles) and predefined entities must resolve, as
+    // .NET XmlReader does, instead of failing the whole feed.
+    let xml = br#"<?xml version="1.0"?><rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Tom &#x27; Jerry &amp; Co &#39;</title><guid>g1</guid><link>http://nzb.example/a.nzb</link><enclosure url="http://nzb.example/dl?x=1&amp;y=2&#x26;z=3" length="10"/></item></channel></rss>"#.to_vec();
+    let (addr, _requests) = serve(vec![Reply::ok(xml)]).await;
+    let client = client_for(addr, 4096);
+
+    let items = client
+        .search("query", 100, &CancellationToken::new())
+        .await
+        .unwrap();
+
+    let item = items.first().expect("one item");
+    assert_eq!(item.title, "Tom ' Jerry & Co '");
+    assert_eq!(item.nzb_url, "http://nzb.example/dl?x=1&y=2&z=3");
+}
+
+#[tokio::test]
+async fn undeclared_entity_is_format_error_without_leaking_name() {
+    // With DTDs prohibited, a named non-predefined entity is not well-formed; .NET
+    // rejects it too. The error must not contain the entity/body text.
+    let xml = format!(
+        r#"<?xml version="1.0"?><rss><channel><item><title>&{BODY_MARKER};</title></item></channel></rss>"#
+    )
+    .into_bytes();
+    let (addr, _requests) = serve(vec![Reply::ok(xml)]).await;
+    let client = client_for(addr, 4096);
+
+    let err = client
+        .search("query", 100, &CancellationToken::new())
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, Error::Format { .. }), "{err:?}");
+    assert!(!err.to_string().contains(BODY_MARKER));
+    assert!(!format!("{err:?}").contains(BODY_MARKER));
+}
+
+#[tokio::test]
+async fn illegal_char_ref_is_format_error() {
+    // &#x0B; (vertical tab) is not a legal XML 1.0 character; .NET rejects it as well.
+    let xml = br#"<?xml version="1.0"?><rss><channel><item><title>a&#x0B;b</title></item></channel></rss>"#
+        .to_vec();
+    let (addr, _requests) = serve(vec![Reply::ok(xml)]).await;
+    let client = client_for(addr, 4096);
+
+    let err = client
+        .search("query", 100, &CancellationToken::new())
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, Error::Format { .. }), "{err:?}");
+}
+
+#[tokio::test]
 async fn newznab_error_element_is_protocol_error_not_format() {
     // Ported from QueryAsync_NewznabErrorElement_IsProtocolErrorNotFormat.
     let xml =
