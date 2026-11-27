@@ -509,14 +509,49 @@ fn rfc1123(ts: Timestamp) -> String {
     )
 }
 
+/// A `host[:port]` that is safe to embed in an absolute URL (same charset rule as the
+/// OIDC redirect host check).
+fn valid_host(host: &str) -> bool {
+    !host.is_empty()
+        && !host.contains(|c: char| c.is_whitespace() || matches!(c, '/' | '\\' | '?' | '#' | '@'))
+}
+
+/// First entry of a possibly comma-separated forwarded header, trimmed.
+fn forwarded_value(value: &str) -> &str {
+    value.split(',').next().unwrap_or("").trim()
+}
+
 pub(crate) fn public_base_url(headers: &HeaderMap, uri: &Uri, configured: &str) -> String {
     let trimmed = configured.trim_end_matches('/');
     let mut base = if !trimmed.is_empty() && trimmed != "http://localhost:3000" {
         trimmed.to_owned()
     } else {
-        let scheme = uri.scheme_str().unwrap_or("http");
-        let host = uri.authority().map_or("localhost", |a| a.as_str());
-        format!("{scheme}://{host}")
+        // v1 `GetPublicBaseUrl` uses the request's own scheme/host. Origin-form request
+        // URIs carry no authority, so the `Host` header (or `X-Forwarded-Host` behind a
+        // proxy) is the host the client actually used; `localhost` is only a last resort.
+        let scheme = headers
+            .get("x-forwarded-proto")
+            .and_then(|v| v.to_str().ok())
+            .map(forwarded_value)
+            .filter(|s| s.eq_ignore_ascii_case("http") || s.eq_ignore_ascii_case("https"))
+            .map(str::to_ascii_lowercase)
+            .or_else(|| uri.scheme_str().map(str::to_owned))
+            .unwrap_or_else(|| "http".to_owned());
+        let host = ["x-forwarded-host", header::HOST.as_str()]
+            .into_iter()
+            .filter_map(|name| headers.get(name))
+            .filter_map(|v| v.to_str().ok())
+            .map(forwarded_value)
+            .find(|h| valid_host(h))
+            .or_else(|| {
+                uri.authority()
+                    .map(axum::http::uri::Authority::as_str)
+                    .filter(|h| valid_host(h))
+            });
+        match host {
+            Some(host) => format!("{scheme}://{host}"),
+            None => format!("{scheme}://localhost"),
+        }
     };
     // The frontend proxy supplies its validated URL_BASE as this prefix (v1
     // GetPublicBaseUrl + X-Forwarded-Prefix).
@@ -1280,4 +1315,118 @@ async fn failover_order(
         .into_response(),
         "POST, OPTIONS",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    fn headers(pairs: &[(&'static str, &str)]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for (k, v) in pairs {
+            h.insert(*k, HeaderValue::from_str(v).unwrap());
+        }
+        h
+    }
+
+    fn origin_form() -> Uri {
+        "/adapters/addon/tok/stream/movie/tt123.json"
+            .parse()
+            .unwrap()
+    }
+
+    #[test]
+    fn public_base_url_prefers_configured() {
+        let h = headers(&[("host", "ignored.example")]);
+        assert_eq!(
+            public_base_url(&h, &origin_form(), "https://dysk.example.com/"),
+            "https://dysk.example.com"
+        );
+    }
+
+    #[test]
+    fn public_base_url_treats_localhost_placeholder_as_unset() {
+        let h = headers(&[("host", "umbrel.internal:30132")]);
+        assert_eq!(
+            public_base_url(&h, &origin_form(), "http://localhost:3000"),
+            "http://umbrel.internal:30132"
+        );
+    }
+
+    #[test]
+    fn public_base_url_falls_back_to_host_header_when_unset() {
+        // Origin-form request URIs carry no authority; the Host header is the host the
+        // client actually used and must replace the old `localhost` fallback.
+        let h = headers(&[("host", "umbrel.internal:30132")]);
+        let uri = origin_form();
+        assert!(uri.authority().is_none());
+        assert_eq!(
+            public_base_url(&h, &uri, ""),
+            "http://umbrel.internal:30132"
+        );
+    }
+
+    #[test]
+    fn public_base_url_honors_forwarded_host_and_proto() {
+        let h = headers(&[
+            ("x-forwarded-host", "dysk.example.com:8443"),
+            ("x-forwarded-proto", "HTTPS"),
+            ("host", "10.0.0.5:3000"),
+        ]);
+        assert_eq!(
+            public_base_url(&h, &origin_form(), ""),
+            "https://dysk.example.com:8443"
+        );
+    }
+
+    #[test]
+    fn public_base_url_forwarded_host_list_first_entry_wins() {
+        let h = headers(&[
+            ("x-forwarded-host", "a.example, b.example"),
+            ("host", "fallback.example"),
+        ]);
+        assert_eq!(public_base_url(&h, &origin_form(), ""), "http://a.example");
+    }
+
+    #[test]
+    fn public_base_url_skips_unusable_host_values() {
+        let h = headers(&[
+            ("x-forwarded-host", "bad/host"),
+            ("host", "fallback.example"),
+        ]);
+        assert_eq!(
+            public_base_url(&h, &origin_form(), ""),
+            "http://fallback.example"
+        );
+        let h = headers(&[("x-forwarded-proto", "gopher"), ("host", "h.example")]);
+        assert_eq!(public_base_url(&h, &origin_form(), ""), "http://h.example");
+    }
+
+    #[test]
+    fn public_base_url_uses_uri_authority_for_absolute_form() {
+        let h = HeaderMap::new();
+        let uri: Uri = "http://proxy.internal:8080/api".parse().unwrap();
+        assert_eq!(public_base_url(&h, &uri, ""), "http://proxy.internal:8080");
+    }
+
+    #[test]
+    fn public_base_url_localhost_only_when_no_host_at_all() {
+        let h = HeaderMap::new();
+        assert_eq!(public_base_url(&h, &origin_form(), ""), "http://localhost");
+    }
+
+    #[test]
+    fn public_base_url_appends_forwarded_prefix() {
+        let h = headers(&[("host", "h.example"), ("x-forwarded-prefix", "/dysk/")]);
+        assert_eq!(
+            public_base_url(&h, &origin_form(), ""),
+            "http://h.example/dysk"
+        );
+        let h = headers(&[("x-forwarded-prefix", "/dysk")]);
+        assert_eq!(
+            public_base_url(&h, &origin_form(), "http://h.example/dysk"),
+            "http://h.example/dysk"
+        );
+    }
 }
