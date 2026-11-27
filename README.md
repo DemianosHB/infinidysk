@@ -172,9 +172,14 @@ Special thanks to the forks and contributors whose ideas we consolidated:
 
 This repository is v1-only: `v1` is the development line and the target of all pull requests. The project consists of a .NET 10 backend (WebDAV, Usenet streaming, SAB API) and a React Router 8 frontend (admin UI). See [CONTRIBUTING.md](CONTRIBUTING.md) for local development setup and [CHANGELOG.md](CHANGELOG.md) for release history. Source for the published documentation lives in [infinidysk/docs](https://github.com/infinidysk/docs). Local `run-backend.sh` enables the Scalar admin API reference at `/scalar/`; Docker requires `ENABLE_API_DOCS=true`.
 
+## Legal and responsible use
+
+InfiniDysk is a general-purpose, self-hosted tool: it streams whatever NZB content the Usenet providers and indexers you configure expose, using your own accounts. This repository hosts no content itself and does not provide, link to, or endorse any copyrighted material.
+
+You are solely responsible for the content you access with it — only use InfiniDysk with content you have the legal right to download and stream in your jurisdiction. The maintainers do not condone piracy and will not support users suspected of engaging in copyright infringement.
+
+If you believe material in this repository infringes your rights, please report it via [GitHub's DMCA takedown process](https://docs.github.com/en/site-policy/dmca-takedowns) or by opening an issue, and it will be acted on promptly.
+
 ## License
 
 InfiniDysk is released under the [MIT License](LICENSE).
-
-> [!NOTE]
-> InfiniDysk is intended for use with legally obtained or public domain content only. The project maintainers do not condone piracy and will not provide support for users suspected of engaging in copyright infringement.
