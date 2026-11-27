@@ -12,7 +12,7 @@ namespace NzbWebDAV.Api.Controllers.Watchtower;
 
 [ApiController]
 [Route("api/watchtower-mutate")]
-public class WatchtowerMutateController(DavDatabaseClient dbClient) : BaseApiController
+public class WatchtowerMutateController(DavDatabaseClient dbClient, ImdbTitleResolver titleResolver) : BaseApiController
 {
     protected override async Task<IActionResult> HandleRequest()
     {
@@ -214,7 +214,11 @@ public class WatchtowerMutateController(DavDatabaseClient dbClient) : BaseApiCon
         if (string.IsNullOrWhiteSpace(contentId))
             throw new BadHttpRequestException("A content id (e.g. an imdb id) is required.");
         var title = form["title"].ToString();
-        if (string.IsNullOrWhiteSpace(title)) title = contentId;
+        if (WtTitles.IsUnresolvedTitle(title, contentId))
+        {
+            var resolved = await WtTitles.ResolveAsync(titleResolver, type, contentId, ct).ConfigureAwait(false);
+            title = string.IsNullOrWhiteSpace(resolved) ? contentId : resolved;
+        }
 
         var manualSource = await GetOrCreateManualSourceAsync(now, ct).ConfigureAwait(false);
         var srcId = manualSource.Id.ToString();
@@ -229,6 +233,15 @@ public class WatchtowerMutateController(DavDatabaseClient dbClient) : BaseApiCon
                 prov.Add(srcId);
                 existing.Provenance = WtJson.WriteStrings(prov);
                 existing.UpdatedAtUnix = now;
+            }
+            if (WtTitles.IsUnresolvedTitle(existing.Title, existing.ContentId))
+            {
+                var resolved = await WtTitles.ResolveAsync(titleResolver, existing.Type, existing.ContentId, ct).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(resolved))
+                {
+                    existing.Title = resolved;
+                    existing.UpdatedAtUnix = now;
+                }
             }
             return;
         }

@@ -770,6 +770,7 @@ public sealed class WatchtowerServiceTests
             preflightCache: null!,
             enumerator: null!,
             episodeEnumerator: null!,
+            titleResolver: null!,
             preferredOrderStore: null!,
             nzbFetchCoalescer: null!,
             benchmarkGate: new BenchmarkGate(),
