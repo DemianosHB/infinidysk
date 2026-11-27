@@ -13,7 +13,7 @@
 <p align="center"><strong>Your media library, streamed from Usenet.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/DemianosHB/neodysk/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/DemianosHB/neodysk?include_prereleases&filter=v2.*&label=2.x" /></a>
+  <a href="https://github.com/DemianosHB/neodysk/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/DemianosHB/neodysk?include_prereleases&filter=v2*&label=2.x" /></a>
   <a href="https://github.com/DemianosHB/neodysk/pkgs/container/neodysk-rust"><img alt="Docker image" src="https://img.shields.io/badge/ghcr.io-demianoshb%2Fneodysk--rust-blue?logo=docker&logoColor=white" /></a>
   <a href="https://github.com/DemianosHB/neodysk/actions/workflows/rust-ci.yml?branch=rust"><img alt="CI status" src="https://img.shields.io/github/actions/workflow/status/DemianosHB/neodysk/rust-ci.yml?branch=rust&label=CI" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/DemianosHB/neodysk" /></a>
@@ -83,7 +83,7 @@ Open `http://<host>:3000`, create the admin account, then add your providers. Do
 | **Port** | `3000`, shared by the UI, the SABnzbd API and WebDAV |
 | **Mount** | The library is mounted at `/mnt/infinidysk` |
 | **Image** | `ghcr.io/demianoshb/neodysk-rust`, for Linux x64 and arm64 |
-| **Tags** | Pushes of a `v2*` tag publish that version (plus `latest`); a manual workflow run on the `rust` branch publishes `rust-dev`. Upstream keeps `ghcr.io/infinidysk/infinidysk-next`. |
+| **Tags** | Pre-releases are `v2-beta.NN` (see [Release versioning](#release-versioning)); each published tag also moves `latest`. A manual workflow run on the `rust` branch publishes `rust-dev`. Upstream keeps `ghcr.io/infinidysk/infinidysk-next`. |
 
 Next steps in the docs:
 
@@ -91,6 +91,20 @@ Next steps in the docs:
 2. [Providers](https://www.infinidysk.com/v2/install/providers/)
 3. [Connect your Arr apps](https://www.infinidysk.com/v2/install/connect-arr/)
 4. [Settings](https://www.infinidysk.com/v2/reference/settings/)
+
+## Release versioning
+
+Tags on this repo drive releases and image builds (the Docker workflow triggers on the `v2*` glob):
+
+- **Pre-releases:** `v2-beta.NN` — short form, counter zero-padded to two digits so tags sort
+  lexically (`v2-beta.02` < `v2-beta.10`). The counter is the number of shipped v2 pre-releases;
+  the two tags from the old long scheme (`v2.0.0-beta.11-Demianos1`, `v2.0.0-beta.11-Demianos2`)
+  count as `01` and `02`, so the next pre-release is **`v2-beta.03`**.
+- **Stable:** `v2.0.0` and up, no suffix.
+- Pushing a `v2*` tag builds and pushes `ghcr.io/demianoshb/neodysk-rust:<tag>` (multi-arch
+  amd64/arm64) plus `latest`. A manual workflow run on the `rust` branch publishes `rust-dev`.
+- Create the GitHub release with the same tag, marked **pre-release** for `v2-beta.NN`; the
+  release notes list all changes since the previous tag.
 
 ## Status
 
