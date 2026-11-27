@@ -44,7 +44,7 @@
       ));
       await act(async () => document.querySelector('[aria-label="About backups"]').click());
       const tip = document.querySelector('[role="tooltip"]').textContent;
-      check(/stop infinidysk/i.test(tip), "PostgreSQL backups must stop infinidysk first");
+      check(/stop neodysk/i.test(tip), "PostgreSQL backups must stop neodysk first");
       check(tip.includes("pg_dump") && tip.includes("/config/repairs"), "Backups need the dump and repair directory");
       check(/matched pair/i.test(tip), "Backups must keep the dump and repair directory together");
       check(/restore both before restarting/i.test(tip), "Restore must finish before restarting");
@@ -79,7 +79,7 @@
       [{ ...failed, attempt: { ...failed.attempt, id: "a0" } }, staging, { started: 2 }],
       "restarted",
     );
-    await run("lost attempt", [{ started: 1 }], "rejected: infinidysk has not come back after 5 minutes; check its logs");
+    await run("lost attempt", [{ started: 1 }], "rejected: neodysk has not come back after 5 minutes; check its logs");
     await run("proxy while down", [staging, 502, 502, { started: 2 }], "restarted");
     await run("staging outlasts deadline", [...Array(100).fill(staging), { started: 2 }], "restarted");
     document.getElementById("result").textContent = "PASS";

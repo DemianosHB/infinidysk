@@ -140,11 +140,11 @@ export function NewBuild() {
   return (
     <Alert className="mb-6">
       <CircleArrowUp />
-      <AlertTitle>infinidysk was updated</AlertTitle>
+      <AlertTitle>neodysk was updated</AlertTitle>
       <AlertDescription>
         {stuck ? (
           <p>
-            Reloading still loads the previous version, so a cache between this browser and infinidysk serves an old
+            Reloading still loads the previous version, so a cache between this browser and neodysk serves an old
             copy of the page. Clear this site's data in the browser, or the cache of your reverse proxy.
           </p>
         ) : (
@@ -174,7 +174,7 @@ function Version() {
   return (
     <Link
       to="/system"
-      aria-label={`infinidysk ${label}. System${status.update ? ". Update available" : ""}`}
+      aria-label={`neodysk ${label}. System${status.update ? ". Update available" : ""}`}
       className={cn(
         "hover:bg-sidebar-accent/60 flex items-center gap-2.5 rounded-md border px-2 py-1.5",
         status.update ? "border-warning" : "border-transparent",
@@ -182,7 +182,7 @@ function Version() {
     >
       <HardDrive className="text-muted-foreground size-4 shrink-0" />
       <span className="min-w-0 flex-1">
-        <span className="block text-xs font-medium">infinidysk</span>
+        <span className="block text-xs font-medium">neodysk</span>
         <span className="text-muted-foreground block truncate font-mono text-xs" title={label}>
           {label}
         </span>

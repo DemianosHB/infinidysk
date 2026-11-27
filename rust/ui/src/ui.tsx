@@ -34,7 +34,7 @@ import type { Schemas } from "./api/client";
 
 /** Sets the browser title, most specific part first, and restores the previous one on unmount. */
 export function useTitle(...parts: (string | undefined)[]) {
-  const title = [...parts.filter(Boolean), "infinidysk"].join(" | ");
+  const title = [...parts.filter(Boolean), "neodysk"].join(" | ");
   useEffect(() => {
     const previous = document.title;
     document.title = title;

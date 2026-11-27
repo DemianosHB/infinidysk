@@ -272,7 +272,7 @@ function UpgradeFailed({ status }: { status: Schemas["UpgradeStatus"] }) {
 }
 
 function credentialsError(error: Error, setup: boolean): string {
-  if (!(error instanceof HttpError)) return "Cannot reach the server. Check that infinidysk is running, then try again.";
+  if (!(error instanceof HttpError)) return "Cannot reach the server. Check that neodysk is running, then try again.";
   if (error.status === 401 && !setup) return "Wrong username or password. The username is case-sensitive.";
   if (error.status === 409) return "An admin account already exists. Reload the page to sign in.";
   const message = error.message.charAt(0).toUpperCase() + error.message.slice(1);

@@ -162,7 +162,7 @@ function Summary({ status }: { status?: ArrStatus }) {
     <div className="flex min-w-0 items-start gap-2 text-xs">
       <Status tone={issue || here === 0 ? "warning" : "success"}>Connected</Status>
       <span className="text-muted-foreground min-w-0 text-pretty">
-        {here === 0 ? "add infinidysk as a SABnzbd download client in this Arr" : `sends to infinidysk through ${here} download client${here === 1 ? "" : "s"}`}
+        {here === 0 ? "add neodysk as a SABnzbd download client in this Arr" : `sends to neodysk through ${here} download client${here === 1 ? "" : "s"}`}
         {issue && ` · ${issue}`}
       </span>
     </div>

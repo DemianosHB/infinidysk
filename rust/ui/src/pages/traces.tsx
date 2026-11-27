@@ -434,16 +434,16 @@ export function TraceBody({ header, events }: { header: Header; events: TraceEve
           .join(" · "),
         failed + pending > 0,
       ],
-      ["First request", opt(s.first_request_ns), false, "From the stream start to the first read request reaching infinidysk."],
-      ["First reply", opt(s.first_reply_ns), false, "That first request's time in infinidysk, from arrival to reply."],
+      ["First request", opt(s.first_request_ns), false, "From the stream start to the first read request reaching neodysk."],
+      ["First reply", opt(s.first_reply_ns), false, "That first request's time in neodysk, from arrival to reply."],
       ["Ordering wait", wait(s.request_order_ns, s.longest_order_ns), false, "Requests waiting for earlier reads of the same handle. Summed; requests overlap."],
       ["Handle lock wait", wait(s.request_lock_ns, s.longest_lock_ns), false, "Requests waiting for the handle's reader, busy with another request."],
       ["In stream reader", wait(s.request_read_ns, s.longest_read_ns), false, "Requests in the stream reader, including segment waits."],
       [
-        "No request in infinidysk",
+        "No request in neodysk",
         wait(s.no_request_ns, s.longest_no_request_ns),
         false,
-        "After the first request, time with no read request in infinidysk. The kernel, its cache or the player had it; the trace cannot tell which.",
+        "After the first request, time with no read request in neodysk. The kernel, its cache or the player had it; the trace cannot tell which.",
       ],
     );
   }

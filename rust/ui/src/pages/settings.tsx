@@ -132,7 +132,7 @@ const categories = [
     group: "Automation",
     slug: "download-client",
     title: "Download client",
-    description: "Add infinidysk to Sonarr, Radarr and the other Arrs as a SABnzbd client with these details",
+    description: "Add neodysk to Sonarr, Radarr and the other Arrs as a SABnzbd client with these details",
   },
   {
     group: "v1 fork",
@@ -174,13 +174,13 @@ const categories = [
     group: "System",
     slug: "network",
     title: "Network",
-    description: "How Arrs and browsers reach infinidysk, and how it identifies clients behind a reverse proxy",
+    description: "How Arrs and browsers reach neodysk, and how it identifies clients behind a reverse proxy",
   },
   {
     group: "System",
     slug: "database",
     title: "Database",
-    description: "Where infinidysk keeps its library, queue and history, and moving it to PostgreSQL",
+    description: "Where neodysk keeps its library, queue and history, and moving it to PostgreSQL",
   },
   {
     group: "System",
@@ -534,7 +534,7 @@ function RestartBanner({ required }: { required: boolean }) {
       <AlertDialog open={open} onOpenChange={(o) => !restart.isPending && setOpen(o)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Restart infinidysk now?</AlertDialogTitle>
+            <AlertDialogTitle>Restart neodysk now?</AlertDialogTitle>
             <AlertDialogDescription>
               The mount directory, mount file dates, read-ahead memory, FUSE tuning and experiments apply after a restart, which takes a few seconds.{" "}
               {reads + imports === 0
@@ -667,7 +667,7 @@ export function Settings() {
   const invalid = (path: string) =>
     save.error instanceof HttpError && save.error.path === path ? save.error.message : undefined;
   const address = new URL(URL.canParse(saved.network.public_url) ? saved.network.public_url : location.origin);
-  const addressHint = saved.network.public_url ? "From the Public URL." : "As this browser reaches infinidysk.";
+  const addressHint = saved.network.public_url ? "From the Public URL." : "As this browser reaches neodysk.";
   /** Changes that convert library files go through a preview of the saved settings. */
   const previewChange = (req: PreviewRequest) => {
     if (dirty) setRefused(req);
@@ -802,7 +802,7 @@ export function Settings() {
                       </>
                     ) : (
                       <>
-                        Each video becomes a small file holding a playback link to infinidysk, so media servers need no mount.
+                        Each video becomes a small file holding a playback link to neodysk, so media servers need no mount.
                         Release subtitles are copied beside it.
                       </>
                     )}{" "}
@@ -1352,7 +1352,7 @@ export function Settings() {
                         {
                           value: "disabled",
                           title: "Never",
-                          description: "Anyone who can reach infinidysk can change settings and reveal keys.",
+                          description: "Anyone who can reach neodysk can change settings and reveal keys.",
                         },
                       ]}
                     />
@@ -1388,7 +1388,7 @@ export function Settings() {
                       "auth.oidc.issuer",
                       "Your identity provider's issuer, exactly as it publishes it. Leave empty to turn SSO off.",
                     )}
-                    hint="Such as https://auth.example.com/application/o/infinidysk/ or https://keycloak.example.com/realms/media."
+                    hint="Such as https://auth.example.com/application/o/neodysk/ or https://keycloak.example.com/realms/media."
                     error={invalid("auth.oidc.issuer")}
                   >
                     <Input
@@ -1523,7 +1523,7 @@ export function Settings() {
                       "network.public_url",
                       "Used for Arr webhooks and in STRM playback links. When empty, webhooks use the address each Arr already uses for its SABnzbd client.",
                     )}
-                    hint="The address Arrs and browsers use to reach infinidysk, such as your HTTPS reverse-proxy address. STRM files need it set."
+                    hint="The address Arrs and browsers use to reach neodysk, such as your HTTPS reverse-proxy address. STRM files need it set."
                     error={invalid("network.public_url")}
                   >
                     {saved.imports.strategy === "strm" ? (
@@ -1531,7 +1531,7 @@ export function Settings() {
                         id="public-url"
                         saved={saved.network.public_url}
                         locked={locked("network.public_url")}
-                        placeholder="https://infinidysk.example.com"
+                        placeholder="https://neodysk.example.com"
                         onPreview={(public_url) => previewChange({ public_url })}
                       />
                     ) : (
@@ -1539,7 +1539,7 @@ export function Settings() {
                         id="public-url"
                         type="url"
                         className="font-mono"
-                        placeholder="https://infinidysk.example.com"
+                        placeholder="https://neodysk.example.com"
                         pattern="https?://.+"
                         disabled={locked("network.public_url")}
                         value={draft.network.public_url}
@@ -1691,7 +1691,7 @@ function Password() {
     return (
       <p className="text-muted-foreground text-xs">
         {auth.data?.sso
-          ? "No admin account; sign-in uses SSO. If your identity provider is down, set INFINIDYSK__AUTH__MODE=local and restart, then open infinidysk from your local network."
+          ? "No admin account; sign-in uses SSO. If your identity provider is down, set INFINIDYSK__AUTH__MODE=local and restart, then open neodysk from your local network."
           : "No admin account exists yet. When sign-in is required, the next visit asks you to create one."}
       </p>
     );

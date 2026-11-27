@@ -95,7 +95,7 @@ function Version({ status }: { status: Schemas["Status"] }) {
   return (
     <Card icon={Tag}>
       <div className="flex flex-wrap items-baseline gap-x-3">
-        <span className="font-medium">infinidysk {status.version}</span>
+        <span className="font-medium">neodysk {status.version}</span>
         {status.commit && <span className="text-muted-foreground font-mono text-xs">{status.commit.slice(0, 7)}</span>}
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-4">
@@ -221,7 +221,7 @@ function SupportPack() {
       const name = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "")?.[1];
       const a = document.createElement("a");
       a.href = URL.createObjectURL(data);
-      a.download = name ?? "infinidysk-support.zip";
+      a.download = name ?? "neodysk-support.zip";
       a.click();
       URL.revokeObjectURL(a.href);
     },
@@ -346,7 +346,7 @@ function Leftovers() {
   return (
     <Card icon={Archive}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-        <span className="font-medium">infinidysk 1.x data</span>
+        <span className="font-medium">neodysk 1.x data</span>
         <span className="text-muted-foreground tabular-nums">
           {measure.isPending ? (
             <span className="flex items-center gap-1.5">
@@ -429,7 +429,7 @@ function Resources({ live }: { live?: Schemas["LiveView"] }) {
       label: "App",
       tone: "bg-primary",
       size: app,
-      hint: "Connections, read buffers and everything else infinidysk holds.",
+      hint: "Connections, read buffers and everything else neodysk holds.",
     },
     {
       label: "Segment cache",

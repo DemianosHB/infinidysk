@@ -173,7 +173,7 @@ function Start({ folder }: { folder: string }) {
         confirm="Start copying"
         onConfirm={() => start.mutate(url)}
       >
-        infinidysk copies the library, queue, history and settings to PostgreSQL, then keeps the copy in sync while you keep using
+        neodysk copies the library, queue, history and settings to PostgreSQL, then keeps the copy in sync while you keep using
         it. Nothing switches until you choose Switch to PostgreSQL. Back up <code className="break-all">{folder}</code> before switching.
       </Confirm>
     </div>
@@ -277,7 +277,7 @@ function Move({ migration, target }: { migration: Migration; target?: string | n
             variant="outline"
             disabled={cancel.isPending || cutover.isPending}
             title="Cancel the move?"
-            message="infinidysk stops copying and empties the PostgreSQL database again. It keeps running on SQLite."
+            message="neodysk stops copying and empties the PostgreSQL database again. It keeps running on SQLite."
             confirm="Cancel the move"
             onConfirm={() => cancel.mutate()}
           />
@@ -292,7 +292,7 @@ function Move({ migration, target }: { migration: Migration; target?: string | n
         confirm="Switch"
         onConfirm={() => cutover.mutate()}
       >
-        infinidysk restarts. Playback, WebDAV and imports pause until the switch finishes. Your SQLite file is kept as{" "}
+        neodysk restarts. Playback, WebDAV and imports pause until the switch finishes. Your SQLite file is kept as{" "}
         <code>infinidysk.sqlite.pre-postgres</code>.
       </Confirm>
     </div>

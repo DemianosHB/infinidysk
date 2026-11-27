@@ -104,7 +104,7 @@ export function Overview() {
       {!starNoticeDismissed && (
         <Alert className="mb-6">
           <Star className="text-primary" />
-          <AlertTitle>Enjoying infinidysk?</AlertTitle>
+          <AlertTitle>Enjoying neodysk?</AlertTitle>
           <AlertAction>
             <Button
               variant="ghost"
@@ -121,7 +121,7 @@ export function Overview() {
           <AlertDescription className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <span>GitHub stars help increase our CodeRabbit review rate limits and make the project easier to discover.</span>
             <Button asChild size="sm" variant="outline">
-              <a href="https://github.com/infinidysk/infinidysk" target="_blank" rel="noreferrer">
+              <a href="https://github.com/DemianosHB/neodysk" target="_blank" rel="noreferrer">
                 <Star /> Star on GitHub
               </a>
             </Button>

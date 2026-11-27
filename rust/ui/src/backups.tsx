@@ -52,7 +52,7 @@ function useBackups(fast: boolean) {
 
 function check(b: Backup): [string, Tone, string | undefined] {
   if (b.incomplete) return ["Incomplete", "warning", "The file is shorter than its header says."];
-  if (b.newer) return ["Newer version", "warning", "A newer infinidysk wrote it; this version cannot restore it."];
+  if (b.newer) return ["Newer version", "warning", "A newer neodysk wrote it; this version cannot restore it."];
   if (b.verify_error) return ["Check failed", "destructive", b.verify_error];
   if (b.verified_ms != null) return [`Checked ${ago(b.verified_ms)}`, "success", stamp(b.verified_ms)];
   return ["Not checked", "muted", undefined];
@@ -143,9 +143,9 @@ export function BackupsPanel({
                 <p>
                   {wait.live
                     ? `${wait.live.step}${wait.live.total ? `: ${bytes(wait.live.done)} / ${bytes(wait.live.total)}` : ""}.`
-                    : "Waiting for infinidysk to restart."}
+                    : "Waiting for neodysk to restart."}
                 </p>
-                <p>infinidysk restarts when it is ready; this page reloads its data then.</p>
+                <p>neodysk restarts when it is ready; this page reloads its data then.</p>
               </AlertDescription>
             </Alert>
           )}
@@ -153,7 +153,7 @@ export function BackupsPanel({
           {applied?.action === "restore" && v && last?.attempt !== applied.attempt && (
             <Alert variant="destructive">
               <CircleAlert />
-              <AlertDescription>infinidysk restarted, but the restore was not applied. Check the logs.</AlertDescription>
+              <AlertDescription>neodysk restarted, but the restore was not applied. Check the logs.</AlertDescription>
             </Alert>
           )}
           {last && (last.failed || last.undo_failed || v?.undo) && (
@@ -162,7 +162,7 @@ export function BackupsPanel({
               <AlertDescription className="space-y-2">
                 {last.failed ? (
                   <>
-                    <p>The restore of {last.backup} did not open, so infinidysk kept the database you had.</p>
+                    <p>The restore of {last.backup} did not open, so neodysk kept the database you had.</p>
                     <p className="font-mono text-xs break-words">{last.failed}</p>
                   </>
                 ) : (
@@ -173,7 +173,7 @@ export function BackupsPanel({
                 )}
                 {last.undo_failed && (
                   <>
-                    <p>Undo did not open the earlier database, so infinidysk kept the restored one. The undo copy is still there.</p>
+                    <p>Undo did not open the earlier database, so neodysk kept the restored one. The undo copy is still there.</p>
                     <p className="font-mono text-xs break-words">{last.undo_failed}</p>
                   </>
                 )}
@@ -185,7 +185,7 @@ export function BackupsPanel({
                         label="Undo restore"
                         disabled={busy}
                         title="Undo the restore?"
-                        message="Put back the database you had before the restore? infinidysk restarts. Changes made since the restore are lost. The restored copy is deleted; the backup itself stays."
+                        message="Put back the database you had before the restore? neodysk restarts. Changes made since the restore are lost. The restored copy is deleted; the backup itself stays."
                         confirm="Undo restore"
                         onConfirm={undo}
                       />
@@ -229,7 +229,7 @@ export function BackupsPanel({
               <CircleAlert />
               <AlertDescription className="space-y-2">
                 <p>
-                  {v.legacy.folders.toLocaleString()} backups from infinidysk 1.x use {bytes(v.legacy.bytes)}. 2.x cannot restore them.
+                  {v.legacy.folders.toLocaleString()} backups from neodysk 1.x use {bytes(v.legacy.bytes)}. 2.x cannot restore them.
                 </p>
                 <Button type="button" variant="outline" size="sm" disabled={dropLegacy.isPending} onClick={() => setLegacyOpen(true)}>
                   Delete 1.x backups
@@ -242,7 +242,7 @@ export function BackupsPanel({
             open={legacyOpen}
             onOpenChange={setLegacyOpen}
             title="Delete 1.x backups?"
-            message={`Deletes ${v?.legacy?.folders ?? 0} backup folders from infinidysk 1.x (${bytes(v?.legacy?.bytes ?? 0)}). They cannot be brought back.`}
+            message={`Deletes ${v?.legacy?.folders ?? 0} backup folders from neodysk 1.x (${bytes(v?.legacy?.bytes ?? 0)}). They cannot be brought back.`}
             expected="delete"
             confirm="Delete 1.x backups"
             onConfirm={() => dropLegacy.mutate()}
@@ -447,7 +447,7 @@ function BackupList({
         title="Restore this backup?"
         message={
           restoring &&
-          `Restore ${restoring.name} from ${stamp(restoring.created_ms)}? infinidysk restarts into this backup. Settings, logins, downloads and history go back to how they were then; anything added since is gone, and imports queued then start again. You sign in with the password you had then. The current database is kept as an undo copy and replaces any earlier undo copy. Afterwards, run Remove dead links to clean up library links to downloads added since the backup.`
+          `Restore ${restoring.name} from ${stamp(restoring.created_ms)}? neodysk restarts into this backup. Settings, logins, downloads and history go back to how they were then; anything added since is gone, and imports queued then start again. You sign in with the password you had then. The current database is kept as an undo copy and replaces any earlier undo copy. Afterwards, run Remove dead links to clean up library links to downloads added since the backup.`
         }
         expected="restore"
         confirm="Restore"
@@ -546,7 +546,7 @@ function useUpload(busy: boolean, onUploaded: () => void) {
     };
     xhr.onerror = () => {
       setSent(null);
-      setError("The upload did not reach infinidysk.");
+      setError("The upload did not reach neodysk.");
     };
     xhr.send(picked);
   };
