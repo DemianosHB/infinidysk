@@ -1252,7 +1252,7 @@ impl Library {
             if holds(&root, &path, &from)? != Some(true) {
                 return Ok(false);
             }
-            root.write(&path, &bytes, owner)?;
+            root.write(&path, &bytes, owner, None)?;
             Ok(true)
         })
         .await?;
@@ -2368,7 +2368,7 @@ pub(crate) fn unlink(f: &Found, folders: &[PathBuf]) -> io::Result<bool> {
 fn put(root: &Root, path: &Path, pointer: &Pointer, owner: (u32, u32)) -> io::Result<()> {
     match pointer {
         Pointer::Link(text) => root.link(path, text, owner),
-        Pointer::Strm(text) => root.write(path, text.as_bytes(), owner),
+        Pointer::Strm(text) => root.write(path, text.as_bytes(), owner, None),
     }
 }
 

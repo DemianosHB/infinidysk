@@ -836,6 +836,18 @@ pub struct Imports {
     pub strm_key: Secret,
     /// Folders holding the Arrs' libraries, walked when pointers change form.
     pub library_dirs: Vec<LibraryDir>,
+    /// Exact chmod for handoff files and the folders made for them, as 3-4 octal digits
+    /// (e.g. `"664"`, `"2775"`). Unset: the process umask decides, as 1.x did. Reported
+    /// to SAB clients as `misc.permissions`.
+    pub handoff_permissions: Option<String>,
+}
+
+impl Imports {
+    /// [`Self::handoff_permissions`] parsed as an octal mode, `None` when unset or invalid.
+    #[must_use]
+    pub fn handoff_mode(&self) -> Option<u32> {
+        u32::from_str_radix(self.handoff_permissions.as_deref()?.trim(), 8).ok()
+    }
 }
 
 /// A folder of an Arr's library.
@@ -891,6 +903,7 @@ impl Default for Imports {
             strm_dir: "/data/completed-downloads".to_owned(),
             strm_key: Secret::default(),
             library_dirs: Vec::new(),
+            handoff_permissions: None,
         }
     }
 }
@@ -1971,6 +1984,21 @@ impl Settings {
             ));
         }
         self.imports.strm_dir = strm_dir.to_owned();
+        if let Some(perms) = self.imports.handoff_permissions.take() {
+            let trimmed = perms.trim();
+            let valid = (3..=4).contains(&trimmed.len())
+                && trimmed.bytes().all(|b| b.is_ascii_digit() && b <= b'7')
+                && u32::from_str_radix(trimmed, 8).is_ok_and(|m| m <= 0o7777);
+            if !valid {
+                return Err(invalid(
+                    "imports.handoff_permissions",
+                    format!(
+                        "Handoff permissions {perms:?} must be 3-4 octal digits (e.g. \"664\")"
+                    ),
+                ));
+            }
+            self.imports.handoff_permissions = Some(trimmed.to_owned());
+        }
         self.imports
             .library_dirs
             .retain(|d| !d.path.trim().is_empty());
