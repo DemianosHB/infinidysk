@@ -346,6 +346,10 @@ export type ForkDoc = {
       tvFallbackMinResults: number;
     }[];
   };
+  proxy: {
+    socks5: string;
+    socks5_bypass: string;
+  };
   prowlarr: {
     url: string;
     api_key: string;
