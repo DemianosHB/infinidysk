@@ -6,6 +6,9 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 const CHANGELOG: &str = include_str!("../../../CHANGELOG.md");
+/// Release notes of the tag this binary was built from, stamped by the release workflow into
+/// `release-notes.build.md`; a build without a stamp has none.
+const BUILD_NOTES: &str = include_str!(concat!(env!("OUT_DIR"), "/release-notes.build.md"));
 
 #[derive(Debug, PartialEq, Eq, Serialize, ToSchema)]
 pub struct Release {
@@ -45,7 +48,9 @@ pub struct ReleaseLink {
 #[utoipa::path(get, path = "/api/v1/release-notes", tag = "status",
     responses((status = 200, body = Vec<Release>)))]
 pub async fn get_release_notes() -> Json<Vec<Release>> {
-    Json(parse(CHANGELOG))
+    let mut releases = parse(BUILD_NOTES);
+    releases.extend(parse(CHANGELOG));
+    Json(releases)
 }
 
 fn parse(changelog: &str) -> Vec<Release> {
@@ -243,6 +248,26 @@ directory first.
                 },
             ]
         );
+    }
+
+    #[test]
+    fn parses_a_stamped_fork_release() {
+        let notes = "## [2-beta.04](https://github.com/DemianosHB/neodysk/releases/tag/v2-beta.04) (2026-11-27)\n\n### Changes\n\n* fix(ui): let fetch set the form content-type ([#47](https://github.com/DemianosHB/neodysk/pull/47))\n";
+        let releases = parse(notes);
+        assert_eq!(releases.len(), 1);
+        assert_eq!(releases[0].version, "2-beta.04");
+        assert_eq!(releases[0].date.as_deref(), Some("2026-11-27"));
+        assert_eq!(
+            releases[0].url.as_deref(),
+            Some("https://github.com/DemianosHB/neodysk/releases/tag/v2-beta.04")
+        );
+        assert_eq!(releases[0].sections[0].title, "Changes");
+        assert!(!releases[0].sections[0].breaking);
+        assert_eq!(
+            releases[0].sections[0].changes[0].text,
+            "fix(ui): let fetch set the form content-type"
+        );
+        assert_eq!(releases[0].sections[0].changes[0].links[0].label, "#47");
     }
 
     #[test]

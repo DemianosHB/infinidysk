@@ -10,7 +10,12 @@ use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
-pub const VERSION: &str = include_str!("../../../version.txt").trim_ascii();
+/// The release this binary was built from: the tag the release workflow stamped in via
+/// `INFINIDYSK_VERSION`, else the `version.txt` fallback for local builds.
+pub const VERSION: &str = match option_env!("INFINIDYSK_VERSION") {
+    Some(version) if !version.is_empty() => version,
+    _ => include_str!("../../../version.txt").trim_ascii(),
+};
 /// The full commit this binary was built from, when the build passed one.
 pub const COMMIT: Option<&str> = match option_env!("INFINIDYSK_COMMIT") {
     Some(commit) if !commit.is_empty() => Some(commit),
@@ -51,7 +56,8 @@ impl Updates {
         let current = match Version::parse(VERSION) {
             Ok(current) => current,
             Err(error) => {
-                tracing::warn!(reason = %error, version = VERSION, "cannot check for a newer build");
+                // Fork pre-release tags like `2-beta.04` are not semver; there is nothing to compare.
+                tracing::debug!(reason = %error, version = VERSION, "cannot check for a newer build");
                 return;
             }
         };

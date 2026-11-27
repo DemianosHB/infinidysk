@@ -29,9 +29,10 @@ COPY --from=plan /src/recipe.json ./
 RUN cargo chef cook --release --locked -p infinidysk --recipe-path recipe.json
 COPY . .
 COPY --from=ui /ui/dist ui/dist
-# The full commit hash, so the server can tell when `main` has moved on.
+# The release tag and full commit hash, so the server reports what it was built from.
 ARG COMMIT=""
-RUN INFINIDYSK_COMMIT="$COMMIT" cargo build --release --locked -p infinidysk \
+ARG VERSION=""
+RUN INFINIDYSK_VERSION="$VERSION" INFINIDYSK_COMMIT="$COMMIT" cargo build --release --locked -p infinidysk \
     && cp target/release/infinidysk /usr/local/bin/infinidysk
 
 # Only the binary, for the release archives (`--target binary --output type=local,dest=<dir>`).
