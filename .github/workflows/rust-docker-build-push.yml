@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Image tag (e.g. v2.0.0-beta.12-Demianos1); empty = rust-dev"
+        description: "Image tag (e.g. v2-beta.03, see rust/README.md#release-versioning); empty = rust-dev"
         required: false
         default: ""
       ref:
