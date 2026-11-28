@@ -865,6 +865,7 @@ async fn exercise(db: &Db) {
     );
     assert!(db.item(content.id).await.expect("query").is_some());
     unlinked(db).await;
+    unread(db).await;
     restored_nzb_links(db).await;
     first_checks(db).await;
     listing_changes_follow_committed_writes(db).await;
@@ -1339,6 +1340,185 @@ async fn unlinked(db: &Db) {
     assert_eq!(db.children(cat.id).await.expect("remaining").len(), 2);
     assert_eq!(db.delete_empty_dirs(before).await.expect("second batch"), 1);
     assert_eq!(db.delete_empty_dirs(before).await.expect("finished"), 0);
+}
+
+/// Unread-download cleanup: a completed download nobody has read since the cutoff is a
+/// candidate with its files, a read or failed one is not, and deleting takes the history
+/// row with the content and refuses a subtree an Arr owns.
+async fn unread(db: &Db) {
+    let content = db
+        .item_by_path("/content")
+        .await
+        .expect("query")
+        .expect("seeded");
+    let cat = Item::child(&content, "unread", ItemKind::Directory).expect("valid");
+    let mut stale = Item::child(&cat, "stale", ItemKind::Directory).expect("valid");
+    stale.created_at = 1;
+    let mut read = Item::child(&cat, "read", ItemKind::Directory).expect("valid");
+    read.created_at = 1;
+    let mut failed = Item::child(&cat, "failed", ItemKind::Directory).expect("valid");
+    failed.created_at = 1;
+    let stale_file = Item::child(&stale, "s.mkv", ItemKind::NzbFile).expect("valid");
+    let read_file = Item::child(&read, "r.mkv", ItemKind::NzbFile).expect("valid");
+    db.insert(
+        &[
+            cat.clone(),
+            stale.clone(),
+            read.clone(),
+            failed.clone(),
+            stale_file.clone(),
+            read_file.clone(),
+        ],
+        &[],
+    )
+    .await
+    .expect("insert");
+    let entry = |id, name: &str, dir: ItemId, status| HistoryEntry {
+        id,
+        created_at: 1,
+        file_name: format!("{name}.nzb"),
+        job_name: name.to_owned(),
+        category: "unread".into(),
+        status,
+        total_bytes: 1,
+        download_seconds: 1,
+        fail_message: None,
+        download_dir: Some(dir),
+        nzb_blob: None,
+        storage: None,
+    };
+    let (stale_job, read_job, failed_job) = (JobId::new(), JobId::new(), JobId::new());
+    db.import_history(&[
+        entry(stale_job, "stale", stale.id, JobStatus::Completed),
+        entry(read_job, "read", read.id, JobStatus::Completed),
+        entry(failed_job, "failed", failed.id, JobStatus::Failed),
+    ])
+    .await
+    .expect("history");
+
+    let now = infinidysk_db::now_ms();
+    db.mark_read(read_file.id).await.expect("read");
+    let found = db.unread_downloads(now).await.expect("query");
+    assert!(
+        found.iter().any(|d| d.job == stale_job),
+        "the stale download is listed: {found:?}"
+    );
+    assert!(
+        !found
+            .iter()
+            .any(|d| d.job == read_job || d.job == failed_job),
+        "a read or failed download is not unread: {found:?}"
+    );
+    let d = found.iter().find(|d| d.job == stale_job).expect("listed");
+    assert_eq!(d.dir, stale.id);
+    assert_eq!(d.dir_path, stale.path);
+    assert_eq!(d.category, "unread");
+    assert_eq!(d.last_read, None);
+    assert_eq!(d.files.len(), 1);
+    assert_eq!(d.files[0].id, stale_file.id);
+    assert_eq!(d.files[0].path, stale_file.path);
+    // Past the read, the read download shows its last read.
+    let day = 86_400_000;
+    let found = db.unread_downloads(now + 2 * day).await.expect("query");
+    let read_one = found.iter().find(|d| d.job == read_job).expect("listed");
+    assert!(read_one.last_read.is_some());
+
+    assert!(
+        !db.delete_unread(JobId::new(), stale.id)
+            .await
+            .expect("delete"),
+        "no such job"
+    );
+    let arr = uuid::Uuid::now_v7();
+    db.record_owner(arr, stale_file.id, None, "/tv/s.mkv", None)
+        .await
+        .expect("record");
+    assert!(
+        !db.delete_unread(stale_job, stale.id).await.expect("delete"),
+        "an Arr owns a file below it"
+    );
+    assert!(db.item(stale_file.id).await.expect("query").is_some());
+    assert!(db.history_entry(stale_job).await.expect("query").is_some());
+    let owner = ArrOwner {
+        item: stale_file.id,
+        file_id: None,
+        path: "/tv/s.mkv".into(),
+    };
+    db.forget_owner(arr, &owner).await.expect("forget");
+    assert!(db.delete_unread(stale_job, stale.id).await.expect("delete"));
+    assert_eq!(
+        db.history_entry(stale_job).await.expect("query"),
+        None,
+        "the history row goes with the content"
+    );
+    assert_eq!(db.item(stale.id).await.expect("query"), None);
+    assert_eq!(db.item(stale_file.id).await.expect("query"), None);
+    assert!(
+        !db.delete_unread(stale_job, stale.id).await.expect("delete"),
+        "gone already"
+    );
+    assert!(db.item(read.id).await.expect("query").is_some());
+    assert!(db.history_entry(read_job).await.expect("query").is_some());
+    assert!(db.item(failed.id).await.expect("query").is_some());
+}
+
+#[tokio::test]
+async fn mark_read_stamps_an_item_at_most_once_a_day() {
+    const DAY_MS: i64 = 86_400_000;
+    let path = std::env::temp_dir().join(format!("infinidysk-db-{}.sqlite", ItemId::new()));
+    let url = format!("sqlite:{}", path.display());
+    let db = Db::connect(&url).await.expect("connect");
+    let content = db
+        .item_by_path("/content")
+        .await
+        .expect("query")
+        .expect("seeded");
+    let file = Item::child(&content, "f.mkv", ItemKind::NzbFile).expect("valid");
+    db.insert(std::slice::from_ref(&file), &[])
+        .await
+        .expect("insert");
+    let pool = sqlx::SqlitePool::connect(&url).await.expect("open");
+    let stamp = || {
+        sqlx::query_scalar::<_, Option<i64>>("SELECT last_read_ms FROM items WHERE id = $1")
+            .bind(file.id.0)
+    };
+    let set = |at: i64| {
+        sqlx::query("UPDATE items SET last_read_ms = $2 WHERE id = $1")
+            .bind(file.id.0)
+            .bind(at)
+    };
+
+    db.mark_read(file.id).await.expect("read");
+    let first = stamp()
+        .fetch_one(&pool)
+        .await
+        .expect("query")
+        .expect("stamped");
+
+    set(first - DAY_MS / 2).execute(&pool).await.expect("set");
+    db.mark_read(file.id).await.expect("read");
+    assert_eq!(
+        stamp().fetch_one(&pool).await.expect("query"),
+        Some(first - DAY_MS / 2),
+        "written at most once a day"
+    );
+
+    set(first - 2 * DAY_MS).execute(&pool).await.expect("set");
+    db.mark_read(file.id).await.expect("read");
+    let third = stamp()
+        .fetch_one(&pool)
+        .await
+        .expect("query")
+        .expect("stamped");
+    assert!(
+        third > first - DAY_MS,
+        "an older stamp is replaced: {third} vs {first}"
+    );
+
+    db.close().await;
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+    }
 }
 
 async fn restored_nzb_links(db: &Db) {

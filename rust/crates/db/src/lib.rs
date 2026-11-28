@@ -596,6 +596,44 @@ struct HistoryListRow {
     dir_path: Option<String>,
 }
 
+/// A completed download the unread-download cleanup considers, with its files.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnreadDownload {
+    pub job: JobId,
+    /// When the job finished, Unix milliseconds.
+    pub created_at: i64,
+    pub job_name: String,
+    pub category: String,
+    /// The job's directory under `/content`.
+    pub dir: ItemId,
+    pub dir_path: String,
+    /// The latest external read of anything below the download directory, Unix ms.
+    pub last_read: Option<i64>,
+    pub files: Vec<UnreadFile>,
+}
+
+/// One file of an [`UnreadDownload`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnreadFile {
+    pub id: ItemId,
+    pub path: String,
+    pub size: Option<u64>,
+}
+
+#[derive(sqlx::FromRow)]
+struct UnreadRow {
+    id: Uuid,
+    created_at: i64,
+    job_name: String,
+    category: String,
+    download_dir: Uuid,
+    dir_path: String,
+    last_read: Option<i64>,
+    file_id: Option<Uuid>,
+    file_path: Option<String>,
+    file_size: Option<i64>,
+}
+
 /// Filters and page for [`Db::history_page`]; `None` matches anything.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct HistoryQuery<'a> {
@@ -2047,6 +2085,83 @@ impl Db {
         rows.into_iter().map(Item::try_from).collect()
     }
 
+    /// Stamps an external (`WebDAV` or FUSE) read on `item`, at most once a day per item:
+    /// the durable last-read the unread-download cleanup counts. Internal reads (health
+    /// checks, imports, analysis) never call this.
+    pub async fn mark_read(&self, item: ItemId) -> Result<(), Error> {
+        on!(self, pool => {
+            sqlx::query(
+                "UPDATE items SET last_read_ms = $2 \
+                 WHERE id = $1 AND (last_read_ms IS NULL OR last_read_ms <= $2 - $3)",
+            )
+            .bind(item.0)
+            .bind(now_ms())
+            .bind(DAY_MS)
+            .execute(pool)
+            .await?;
+            Ok(())
+        })
+    }
+
+    /// Completed downloads created before `cutoff` that nothing has read since — the
+    /// later of their finish and their latest external read is older than `cutoff` —
+    /// oldest first, each with its download directory and files: what the unread-download
+    /// cleanup considers. Which categories an Arr owns is the caller's call.
+    pub async fn unread_downloads(&self, cutoff: i64) -> Result<Vec<UnreadDownload>, Error> {
+        const SQL: &str = concat!(
+            "WITH RECURSIVE sub (id, root) AS (",
+            "SELECT h.download_dir, h.download_dir FROM history h",
+            " WHERE h.status = 1 AND h.download_dir IS NOT NULL AND h.created_at < $1",
+            " UNION ALL",
+            " SELECT i.id, sub.root FROM items i JOIN sub ON i.parent_id = sub.id",
+            "), read_at AS (",
+            " SELECT sub.root AS dir, MAX(i.last_read_ms) AS last_read",
+            " FROM sub JOIN items i ON i.id = sub.id GROUP BY sub.root",
+            ") ",
+            "SELECT h.id, h.created_at, h.job_name, h.category, h.download_dir,",
+            " d.path AS dir_path, r.last_read,",
+            " f.id AS file_id, f.path AS file_path, f.size AS file_size",
+            " FROM history h",
+            " JOIN items d ON d.id = h.download_dir",
+            " LEFT JOIN read_at r ON r.dir = h.download_dir",
+            " LEFT JOIN sub ON sub.root = h.download_dir",
+            " LEFT JOIN items f ON f.id = sub.id AND f.kind <> 1",
+            " WHERE h.status = 1 AND h.created_at < $1 AND (r.last_read IS NULL OR r.last_read < $1)",
+            " ORDER BY h.created_at, h.id, f.path"
+        );
+        let rows: Vec<UnreadRow> =
+            on!(self, pool => sqlx::query_as(SQL).bind(cutoff).fetch_all(pool).await?);
+        let mut downloads: Vec<UnreadDownload> = Vec::new();
+        for row in rows {
+            let job = JobId(row.id);
+            // Rows of one job are contiguous: the order puts h.id before f.path.
+            let slot = match downloads.last_mut() {
+                Some(last) if last.job == job => last,
+                _ => {
+                    downloads.push(UnreadDownload {
+                        job,
+                        created_at: row.created_at,
+                        job_name: row.job_name,
+                        category: row.category,
+                        dir: ItemId(row.download_dir),
+                        dir_path: row.dir_path,
+                        last_read: row.last_read,
+                        files: Vec::new(),
+                    });
+                    downloads.last_mut().expect("just pushed")
+                }
+            };
+            if let (Some(id), Some(path)) = (row.file_id, row.file_path) {
+                slot.files.push(UnreadFile {
+                    id: ItemId(id),
+                    path,
+                    size: row.file_size.map(i64::cast_unsigned),
+                });
+            }
+        }
+        Ok(downloads)
+    }
+
     /// Deletes file `id` like [`Db::delete_item`] if it still is one of
     /// [`Db::files_outside_history`] for `before`, checked in the same transaction.
     /// Returns whether it went.
@@ -2148,6 +2263,66 @@ impl Db {
         });
         if deleted {
             self.listing_changed(|| ListingChange::Tree);
+            self.notify(Change::History);
+        }
+        Ok(deleted)
+    }
+
+    /// Deletes the history row of job `job` together with its download directory `dir` and
+    /// the subtree below it — content and history go as one, so a later play imports the
+    /// job again as new — if the job is still there and no Arr owns anything below `dir`,
+    /// both checked in the same transaction. Returns whether it went.
+    pub async fn delete_unread(&self, job: JobId, dir: ItemId) -> Result<bool, Error> {
+        // Like delete_unowned: an owner insert's foreign-key check share-locks the item
+        // row; SQLite has one writer, and READ COMMITTED lets the recheck below see an
+        // owner committed while the lock waited.
+        const ISOLATION: &str = "SET TRANSACTION ISOLATION LEVEL READ COMMITTED";
+        const LOCK: &str = "SELECT 1 FROM items WHERE id = $1 FOR UPDATE";
+        const STILL_UNREAD: &str = concat!(
+            "WITH RECURSIVE sub (id) AS (",
+            "SELECT id FROM items WHERE id = $2",
+            " UNION ALL SELECT i.id FROM items i JOIN sub ON i.parent_id = sub.id",
+            ") ",
+            "SELECT 1 FROM history h WHERE h.id = $1 AND h.download_dir = $2",
+            " AND NOT EXISTS (SELECT 1 FROM arr_owners WHERE item_id IN (SELECT id FROM sub))"
+        );
+        let postgres = matches!(self.pool, Pool::Postgres(_));
+        let deleted = on!(self, pool => {
+            let still: Option<i32> = sqlx::query_scalar(STILL_UNREAD)
+                .bind(job.0)
+                .bind(dir.0)
+                .fetch_optional(pool)
+                .await?;
+            if still.is_none() {
+                return Ok(false);
+            }
+            let mut tx = pool.begin_with(self.begin_write()).await?;
+            if postgres {
+                sqlx::query(ISOLATION).execute(&mut *tx).await?;
+                sqlx::query(LOCK).bind(dir.0).execute(&mut *tx).await?;
+            }
+            let still: Option<i32> = sqlx::query_scalar(STILL_UNREAD)
+                .bind(job.0)
+                .bind(dir.0)
+                .fetch_optional(&mut *tx)
+                .await?;
+            if still.is_some() {
+                let blob: Option<Option<Uuid>> =
+                    sqlx::query_scalar("DELETE FROM history WHERE id = $1 RETURNING nzb_blob")
+                        .bind(job.0)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+                if let Some(Some(blob)) = blob {
+                    release_nzb!(self, tx, blob);
+                }
+                delete_subtree!(self, tx, dir.0);
+                tx.commit().await?;
+            }
+            still.is_some()
+        });
+        if deleted {
+            self.listing_changed(|| ListingChange::Tree);
+            self.listing_changed(|| ListingChange::Completed);
             self.notify(Change::History);
         }
         Ok(deleted)

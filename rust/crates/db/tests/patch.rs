@@ -1298,6 +1298,7 @@ async fn additive_migration_keeps_existing_files_and_starts_their_generation_at_
             DROP TABLE legacy_repair_articles;
             DROP TABLE repair_patches;
             ALTER TABLE blobs DROP COLUMN generation;
+            ALTER TABLE items DROP COLUMN last_read_ms;
             DELETE FROM _sqlx_migrations WHERE version >= 10;";
         fixture.execute(old_schema, old_schema).await;
         fixture.db = Db::connect(&fixture.url).await.unwrap();
