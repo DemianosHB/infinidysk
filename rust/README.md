@@ -106,9 +106,10 @@ Tags on this repo drive releases and image builds (the Docker workflow triggers 
 - Create the GitHub release with the same tag, marked **pre-release** for `v2-beta.NN`; the
   release notes list all changes since the previous tag.
 - The tag build stamps the tag into the binary (`INFINIDYSK_VERSION`, shown on the system page
-  and in `/api/v1/status`) and embeds the tag's release notes — all PRs merged since the previous
-  `v2*` tag — ahead of the upstream changelog in `/api/v1/release-notes`. `version.txt` stays the
-  fallback for local builds without a stamp.
+  and in `/api/v1/status`) and embeds the release notes of every `v2*` tag — each tag's PRs
+  merged since the previous `v2*` tag, newest tag first — ahead of the upstream changelog in
+  `/api/v1/release-notes`, so every build serves the full fork release history instead of only
+  the newest tag's. `version.txt` stays the fallback for local builds without a stamp.
 
 ## Status
 
