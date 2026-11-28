@@ -861,6 +861,22 @@ fn read_ahead_repair_settings_have_v1_defaults_and_range() {
     assert!(matches!(settings.validate(), Err(Error::Invalid { .. })));
 }
 
+#[test]
+fn webdav_idle_timeout_has_v1_default_and_range() {
+    // v1: usenet.streaming-write-timeout-seconds (default 60, range 0..=600, 0 disables).
+    let mut settings = Settings::default();
+    assert_eq!(settings.webdav.idle_timeout_seconds, 60);
+    assert!(settings.validate().is_ok());
+
+    settings.webdav.idle_timeout_seconds = 0;
+    assert!(settings.validate().is_ok());
+    settings.webdav.idle_timeout_seconds = 600;
+    assert!(settings.validate().is_ok());
+    settings.webdav.idle_timeout_seconds = 601;
+    let error = settings.validate().unwrap_err();
+    assert_eq!(error.path(), Some("webdav.idle_timeout_seconds"));
+}
+
 #[tokio::test]
 async fn read_ahead_repair_env_overlay_applies_and_out_of_range_resets() {
     let _proxy_publish = PROXY_PUBLISH_LOCK.lock().await;

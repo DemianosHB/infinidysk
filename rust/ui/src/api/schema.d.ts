@@ -4543,6 +4543,7 @@ export interface components {
             /**
              * @default {
              *       "download_key": "",
+             *       "idle_timeout_seconds": 60,
              *       "password": "",
              *       "user": "admin"
              *     }
@@ -4822,6 +4823,13 @@ export interface components {
              * @default
              */
             download_key: components["schemas"]["Secret"];
+            /**
+             * Format: int32
+             * @description Seconds a streamed response may go unconsumed before the read is closed and its
+             *     session leaves the active reads; 0 disables. v1 `usenet.streaming-write-timeout-seconds`.
+             * @default 60
+             */
+            idle_timeout_seconds: number;
             /** @default  */
             password: components["schemas"]["Secret"];
             /** @default admin */

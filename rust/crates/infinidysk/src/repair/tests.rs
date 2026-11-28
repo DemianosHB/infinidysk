@@ -1779,6 +1779,7 @@ async fn check_delivery(omitted: bool) {
             f.db.clone(),
             Arc::clone(&client),
         )),
+        idle_timeout_secs: std::sync::atomic::AtomicU64::new(0),
         access: std::sync::RwLock::new(Access {
             auth: Auth::Disabled,
             download_key: None,

@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -600,6 +600,7 @@ pub async fn serve(
             legacy_strm,
             ..access(&settings)
         }),
+        idle_timeout_secs: AtomicU64::new(u64::from(settings.webdav.idle_timeout_seconds)),
     });
     let live = Live {
         client: Arc::clone(&client),
@@ -1088,6 +1089,8 @@ impl Live {
                 ..access(settings)
             };
         }
+        self.dav
+            .set_idle_timeout(u64::from(settings.webdav.idle_timeout_seconds));
         self.arr
             .send_replace(arr_instances(&settings.arr_instances));
         self.health.send_replace(health_settings(&settings.health));
