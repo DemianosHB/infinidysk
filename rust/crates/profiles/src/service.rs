@@ -1090,12 +1090,11 @@ async fn add_warmed_exact(
             continue;
         }
         boosted += 1;
-        match candidates.iter().position(|c| c.nzb_url == p.nzb_url) {
-            Some(pos) => ordered.push(candidates.remove(pos)),
-            None => {
-                p.verified_available = true;
-                ordered.push(p);
-            }
+        if let Some(pos) = candidates.iter().position(|c| c.nzb_url == p.nzb_url) {
+            ordered.push(candidates.remove(pos));
+        } else {
+            p.verified_available = true;
+            ordered.push(p);
         }
     }
     for c in std::mem::take(candidates) {
