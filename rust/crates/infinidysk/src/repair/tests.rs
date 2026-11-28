@@ -409,6 +409,7 @@ async fn durable_worker_recovers_a_missing_article_and_upgrades_existing_proofs(
                 category: "test",
                 priority: 0,
                 post_processing: 0,
+                indexer_name: None,
             },
             xml.as_bytes(),
         )

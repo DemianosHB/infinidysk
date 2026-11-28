@@ -207,6 +207,7 @@ async fn serves_content_links_ids_and_queued_nzbs() {
         download_dir: Some(job.id),
         nzb_blob: None,
         storage: None,
+        indexer_name: None,
     };
     db.add_history(
         &history,
@@ -233,6 +234,7 @@ async fn serves_content_links_ids_and_queued_nzbs() {
         stuck_count: 0,
         last_error: None,
         content_hash: None,
+        indexer_name: None,
     };
     db.enqueue(&queued, &blob::encode_nzb(&xml).unwrap())
         .await
@@ -541,6 +543,7 @@ fn completed(job: &Item) -> HistoryEntry {
         download_dir: Some(job.id),
         nzb_blob: None,
         storage: None,
+        indexer_name: None,
     }
 }
 

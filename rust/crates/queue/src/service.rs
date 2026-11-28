@@ -76,6 +76,9 @@ pub struct Submission<'a> {
     pub category: &'a str,
     pub priority: i16,
     pub post_processing: i16,
+    /// The indexer the NZB came from, when known (v1 `NzbSubmissionRequest.IndexerName`);
+    /// carried into queue and history for the overview's indexer statistics.
+    pub indexer_name: Option<&'a str>,
 }
 
 /// Writes what an Arr imports a finished job from, outside the tree
@@ -482,6 +485,7 @@ impl Queue {
             stuck_count: 0,
             last_error: None,
             content_hash: Some(content_hash),
+            indexer_name: job.indexer_name.map(str::to_owned),
         };
         let encoded = blocking({
             let xml = Arc::clone(&xml);
@@ -515,6 +519,7 @@ impl Queue {
             download_dir: None,
             nzb_blob: None,
             storage: None,
+            indexer_name: job.indexer_name.map(str::to_owned),
         };
         self.db.add_history(&history, &[], &[]).await?;
         self.count(FAILED, 1);
@@ -558,6 +563,7 @@ impl Queue {
             category: &job.category,
             priority: 0,
             post_processing: 0,
+            indexer_name: job.indexer_name.as_deref(),
         };
         self.enqueue_owned(&resubmit, xml).await
     }
@@ -1187,6 +1193,7 @@ fn history(
         download_dir,
         nzb_blob: Some(job.nzb_blob),
         storage: None,
+        indexer_name: job.indexer_name.clone(),
     }
 }
 

@@ -9,7 +9,7 @@ use infinidysk_core::{ItemKind, JobId};
 
 /// `SELECT … FROM history …` column list shared with `HistoryRow`.
 const HISTORY_COLUMNS: &str = "id, created_at, file_name, job_name, category, status, \
-     total_bytes, download_seconds, fail_message, download_dir, nzb_blob, storage";
+     total_bytes, download_seconds, fail_message, download_dir, nzb_blob, storage, indexer_name";
 
 /// `SELECT … FROM items …` column list shared with `ItemRow`.
 const ITEM_COLUMNS: &str = "id, parent_id, name, path, kind, size, meta_blob, nzb_blob, \

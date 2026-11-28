@@ -21,6 +21,7 @@ use infinidysk_db::{
 };
 use infinidysk_health::Health;
 use infinidysk_nntp::{Client, catalog};
+use infinidysk_profiles::SearchService;
 use infinidysk_queue::{Queue, Submission, service};
 use infinidysk_vfs::{Delivery, Session, Tracing, Vfs};
 use serde::{Deserialize, Serialize};
@@ -62,6 +63,9 @@ pub struct Admin {
     pub client: Arc<Client>,
     pub vfs: Arc<Vfs>,
     pub health: Arc<Health>,
+    /// The search service shared with the search routes; its hit tracker feeds the
+    /// overview's indexer statistics.
+    pub search: Arc<SearchService>,
     pub repairs: Arc<crate::repair::Repairs>,
     pub live: Live,
     pub metrics: Arc<Metrics>,
@@ -802,6 +806,7 @@ async fn post_queue(
         category: &category,
         priority: 0,
         post_processing: 0,
+        indexer_name: None,
     };
     match admin.queue.enqueue_owned(&job, Vec::from(data)).await {
         Ok(id) => Ok((StatusCode::CREATED, Json(Queued { id: id.0 }))),
@@ -860,11 +865,28 @@ async fn post_queue_from_url(
         .or_else(|| fetched.as_ref().ok().and_then(|f| f.file_name.clone()))
         .unwrap_or(fallback);
     let file_name = sab::nzb_file_name(&name).map_err(|e| Fail::Bad(e.to_owned()))?;
+    // v1 attributes an addurl grab to the indexer whose host serves the NZB URL.
+    let indexer_name = {
+        let indexers = admin.config.read().await.settings().indexers.clone();
+        indexers.match_enabled_by_host(url).map(|x| x.name.clone())
+    };
+    if let Some(name) = &indexer_name {
+        admin
+            .search
+            .hit_tracker()
+            .record(
+                name,
+                infinidysk_profiles::hits::HitType::Download,
+                jiff::Timestamp::now(),
+            )
+            .await;
+    }
     let job = Submission {
         file_name: &file_name,
         category: &category,
         priority: 0,
         post_processing: 0,
+        indexer_name: indexer_name.as_deref(),
     };
     let writing = admin.queue.db().write_permit().await;
     let queued = match fetched {

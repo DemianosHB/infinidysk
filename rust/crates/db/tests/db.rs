@@ -423,6 +423,7 @@ async fn exercise(db: &Db) {
         stuck_count: 0,
         last_error: None,
         content_hash: None,
+        indexer_name: None,
     };
     db.enqueue(&job, b"nzb").await.expect("enqueue");
     assert_eq!(
@@ -469,6 +470,7 @@ async fn exercise(db: &Db) {
         download_dir: Some(out.id),
         nzb_blob: Some(job.nzb_blob),
         storage: None,
+        indexer_name: None,
     };
     let handoff = Handoff {
         path: "/strm/tv/job/a.strm".into(),
@@ -899,6 +901,7 @@ async fn listing_changes_follow_committed_writes(db: &Db) {
         stuck_count: 0,
         last_error: None,
         content_hash: None,
+        indexer_name: None,
     };
     db.enqueue(&job, b"nzb").await.expect("enqueue");
     assert!(matches!(listings.try_recv(), Ok(ListingChange::Nzbs)));
@@ -924,6 +927,7 @@ async fn listing_changes_follow_committed_writes(db: &Db) {
         download_dir: Some(dir.id),
         nzb_blob: Some(job.nzb_blob),
         storage: None,
+        indexer_name: None,
     };
     assert!(
         db.finish_job(
@@ -1059,6 +1063,7 @@ async fn first_checks(db: &Db) {
         stuck_count: 0,
         last_error: None,
         content_hash: None,
+        indexer_name: None,
     };
     db.enqueue(&job, b"nzb").await.expect("enqueue");
     let dir = Item::child(&content, "first", ItemKind::Directory).expect("valid");
@@ -1106,6 +1111,7 @@ async fn first_checks(db: &Db) {
         download_dir: Some(dir.id),
         nzb_blob: Some(job.nzb_blob),
         storage: None,
+        indexer_name: None,
     };
     let checks = [(good.id, healthy.clone()), (broken.id, suspect.clone())];
     let items = [dir, good.clone(), broken.clone()];
@@ -1286,6 +1292,7 @@ async fn unlinked(db: &Db) {
         download_dir: Some(kept.id),
         nzb_blob: Some(kept_nzb),
         storage: None,
+        indexer_name: None,
     }])
     .await
     .expect("history");
@@ -1386,6 +1393,7 @@ async fn unread(db: &Db) {
         download_dir: Some(dir),
         nzb_blob: None,
         storage: None,
+        indexer_name: None,
     };
     let (stale_job, read_job, failed_job) = (JobId::new(), JobId::new(), JobId::new());
     db.import_history(&[
@@ -1545,6 +1553,7 @@ async fn restored_nzb_links(db: &Db) {
         download_dir: None,
         nzb_blob: None,
         storage: None,
+        indexer_name: None,
     };
     db.import_history(std::slice::from_ref(&history))
         .await
@@ -2214,4 +2223,90 @@ async fn due_repairs_run_before_new_checks_and_later_work_waits_in_the_schedule(
 
     assert_eq!(due, [4, 1, 2, 0, 3].map(|index| files[index].id));
     assert_eq!(schedule, [4, 1, 2, 0, 3, 5, 6].map(|index| files[index].id));
+}
+
+#[tokio::test]
+async fn indexer_scores_aggregates_history_by_indexer_since_a_cutoff() {
+    let path = std::env::temp_dir().join(format!("infinidysk-db-{}.sqlite", ItemId::new()));
+    let db = Db::connect(&format!("sqlite:{}", path.display()))
+        .await
+        .expect("connect");
+    let entry =
+        |created_at: i64, status: JobStatus, bytes: u64, seconds: i32, indexer: Option<&str>| {
+            HistoryEntry {
+                id: JobId::new(),
+                created_at,
+                file_name: "job.nzb".into(),
+                job_name: "job".into(),
+                category: "tv".into(),
+                status,
+                total_bytes: bytes,
+                download_seconds: seconds,
+                fail_message: None,
+                download_dir: None,
+                nzb_blob: None,
+                storage: None,
+                indexer_name: indexer.map(str::to_owned),
+            }
+        };
+    db.add_history(
+        &entry(500, JobStatus::Completed, 999, 99, Some("alpha")),
+        &[],
+        &[],
+    )
+    .await
+    .expect("history");
+    db.add_history(
+        &entry(1_000, JobStatus::Completed, 100, 10, Some("alpha")),
+        &[],
+        &[],
+    )
+    .await
+    .expect("history");
+    db.add_history(
+        &entry(1_000, JobStatus::Completed, 1_000, 1_000, None),
+        &[],
+        &[],
+    )
+    .await
+    .expect("history");
+    db.add_history(
+        &entry(2_000, JobStatus::Completed, 300, 30, Some("alpha")),
+        &[],
+        &[],
+    )
+    .await
+    .expect("history");
+    db.add_history(
+        &entry(1_500, JobStatus::Failed, 50, 0, Some("beta")),
+        &[],
+        &[],
+    )
+    .await
+    .expect("history");
+
+    let scores = db.indexer_scores(1_000).await.expect("scores");
+    assert_eq!(
+        scores,
+        [
+            infinidysk_db::IndexerScore {
+                name: "alpha".into(),
+                completed: 2,
+                failed: 0,
+                bytes_completed: 400,
+                completed_seconds: 40,
+            },
+            infinidysk_db::IndexerScore {
+                name: "beta".into(),
+                completed: 0,
+                failed: 1,
+                bytes_completed: 0,
+                completed_seconds: 0,
+            },
+        ],
+        "old and indexer-less rows are excluded; most active first"
+    );
+
+    let scores = db.indexer_scores(0).await.expect("scores");
+    assert_eq!(scores[0].completed, 3, "the cutoff includes the old row");
 }

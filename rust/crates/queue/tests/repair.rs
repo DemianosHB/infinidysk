@@ -1515,6 +1515,7 @@ async fn resolved_article_spans_reconstruct_missing_bytes_from_real_parity() {
         stuck_count: 0,
         last_error: None,
         content_hash: None,
+        indexer_name: None,
     };
     db.enqueue(&job, &blob::encode_nzb(xml.as_bytes()).unwrap())
         .await

@@ -62,7 +62,10 @@ async fn setup() -> (Router, Db) {
         backbone: None,
     }]);
     let queue = Arc::new(Queue::new(db.clone(), Arc::new(client)));
-    let sab = Sab::new(queue, Arc::new(RwLock::new(config))).unwrap();
+    let search = Arc::new(infinidysk::search::service_from_settings(
+        &config.settings().clone(),
+    ));
+    let sab = Sab::new(queue, Arc::new(RwLock::new(config)), search).unwrap();
     (router(Arc::new(sab)), db)
 }
 
@@ -129,6 +132,7 @@ async fn add_list_report_storage_and_delete() {
         download_dir: Some(dir.id),
         nzb_blob: None,
         storage: None,
+        indexer_name: None,
     };
     let gone = HistoryEntry {
         id: JobId::new(),

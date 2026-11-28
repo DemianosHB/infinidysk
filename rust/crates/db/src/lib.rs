@@ -475,6 +475,8 @@ pub struct QueueEntry {
     pub last_error: Option<String>,
     /// Hex SHA-256 of the NZB's message-ids; a submission matching it returns this job.
     pub content_hash: Option<String>,
+    /// The indexer the NZB came from, when known (v1 `QueueItem.IndexerName`).
+    pub indexer_name: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -495,6 +497,7 @@ struct QueueRow {
     stuck_count: i32,
     last_error: Option<String>,
     content_hash: Option<String>,
+    indexer_name: Option<String>,
 }
 
 impl From<QueueRow> for QueueEntry {
@@ -516,6 +519,7 @@ impl From<QueueRow> for QueueEntry {
             stuck_count: r.stuck_count.try_into().unwrap_or(0),
             last_error: r.last_error,
             content_hash: r.content_hash,
+            indexer_name: r.indexer_name,
         }
     }
 }
@@ -546,6 +550,8 @@ pub struct HistoryEntry {
     /// The SAB `storage` path fixed when the job was handed off; `None` derives it from
     /// the mount.
     pub storage: Option<String>,
+    /// The indexer the NZB came from, when known (v1 `HistoryItem.IndexerName`).
+    pub indexer_name: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -562,6 +568,7 @@ pub(crate) struct HistoryRow {
     download_dir: Option<Uuid>,
     nzb_blob: Option<Uuid>,
     storage: Option<String>,
+    indexer_name: Option<String>,
 }
 
 impl TryFrom<HistoryRow> for HistoryEntry {
@@ -585,6 +592,7 @@ impl TryFrom<HistoryRow> for HistoryEntry {
             download_dir: r.download_dir.map(ItemId),
             nzb_blob: r.nzb_blob.map(BlobId),
             storage: r.storage,
+            indexer_name: r.indexer_name,
         })
     }
 }
@@ -594,6 +602,18 @@ struct HistoryListRow {
     #[sqlx(flatten)]
     entry: HistoryRow,
     dir_path: Option<String>,
+}
+
+/// One indexer's download aggregates over history, for the overview scoreboard
+/// (v1 `GetOverviewStatsResponse.IndexerRow` without the derived fields).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IndexerScore {
+    pub name: String,
+    pub completed: u64,
+    pub failed: u64,
+    pub bytes_completed: u64,
+    /// Sum of `download_seconds` over completed jobs; divide by `completed` for the mean.
+    pub completed_seconds: u64,
 }
 
 /// A completed download the unread-download cleanup considers, with its files.
@@ -680,7 +700,7 @@ macro_rules! select_queue {
         concat!(
             "SELECT id, created_at, file_name, job_name, category, priority, post_processing, \
              nzb_blob, nzb_size, total_bytes, paused, retry_at, attempts, stuck_count, \
-             last_error, content_hash FROM queue ",
+             last_error, content_hash, indexer_name FROM queue ",
             $filter
         )
     };
@@ -838,8 +858,9 @@ macro_rules! insert_history_row {
     ($tx:expr, $h:expr) => {
         sqlx::query(
             "INSERT INTO history (id, created_at, file_name, job_name, category, status, \
-             total_bytes, download_seconds, fail_message, download_dir, nzb_blob, storage) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+             total_bytes, download_seconds, fail_message, download_dir, nzb_blob, storage, \
+             indexer_name) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         )
         .bind($h.id.0)
         .bind($h.created_at)
@@ -853,6 +874,7 @@ macro_rules! insert_history_row {
         .bind($h.download_dir.map(|d| d.0))
         .bind($h.nzb_blob.map(|b| b.0))
         .bind(&$h.storage)
+        .bind(&$h.indexer_name)
         .execute(&mut *$tx)
         .await?;
         if let Some(dir) = $h.download_dir {
@@ -1642,8 +1664,8 @@ impl Db {
             sqlx::query(
                 "INSERT INTO queue (id, created_at, sort_order, file_name, job_name, category, \
                  priority, post_processing, nzb_blob, nzb_size, total_bytes, paused, retry_at, \
-                 attempts, stuck_count, last_error, content_hash) \
-                 VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
+                 attempts, stuck_count, last_error, content_hash, indexer_name) \
+                 VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
             )
             .bind(job.id.0)
             .bind(job.created_at)
@@ -1661,6 +1683,7 @@ impl Db {
             .bind(i32::try_from(job.stuck_count).unwrap_or(i32::MAX))
             .bind(&job.last_error)
             .bind(&job.content_hash)
+            .bind(&job.indexer_name)
             .execute(&mut *tx)
             .await?;
             tx.commit().await?;
@@ -1925,13 +1948,54 @@ impl Db {
     pub async fn history_entry(&self, id: JobId) -> Result<Option<HistoryEntry>, Error> {
         let row: Option<HistoryRow> = on!(self, pool => sqlx::query_as(
             "SELECT id, created_at, file_name, job_name, category, status, total_bytes, \
-             download_seconds, fail_message, download_dir, nzb_blob, storage FROM history \
-             WHERE id = $1",
+             download_seconds, fail_message, download_dir, nzb_blob, storage, indexer_name \
+             FROM history WHERE id = $1",
         )
         .bind(id.0)
         .fetch_optional(pool)
         .await?);
         row.map(HistoryEntry::try_from).transpose()
+    }
+
+    /// Per-indexer download aggregates for jobs finished since `since_ms` (Unix ms), most
+    /// active first — v1 `GetOverviewStatsController.BuildIndexersAsync` over 30 days.
+    pub async fn indexer_scores(&self, since_ms: i64) -> Result<Vec<IndexerScore>, Error> {
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            name: String,
+            completed: i64,
+            failed: i64,
+            bytes_completed: i64,
+            completed_seconds: i64,
+        }
+        let rows: Vec<Row> = on!(self, pool => sqlx::query_as(
+            "SELECT indexer_name AS name, \
+             CAST(SUM(CASE WHEN status = $2 THEN 1 ELSE 0 END) AS BIGINT) AS completed, \
+             CAST(SUM(CASE WHEN status = $3 THEN 1 ELSE 0 END) AS BIGINT) AS failed, \
+             CAST(SUM(CASE WHEN status = $2 THEN total_bytes ELSE 0 END) AS BIGINT) AS bytes_completed, \
+             CAST(SUM(CASE WHEN status = $2 THEN download_seconds ELSE 0 END) AS BIGINT) AS completed_seconds \
+             FROM history WHERE indexer_name IS NOT NULL AND created_at >= $1 \
+             GROUP BY indexer_name",
+        )
+        .bind(since_ms)
+        .bind(JobStatus::Completed as i16)
+        .bind(JobStatus::Failed as i16)
+        .fetch_all(pool)
+        .await?);
+        let mut out: Vec<IndexerScore> = rows
+            .into_iter()
+            .map(|r| IndexerScore {
+                name: r.name,
+                completed: r.completed.cast_unsigned(),
+                failed: r.failed.cast_unsigned(),
+                bytes_completed: r.bytes_completed.cast_unsigned(),
+                completed_seconds: r.completed_seconds.cast_unsigned(),
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            (b.completed + b.failed, &a.name).cmp(&(a.completed + a.failed, &b.name))
+        });
+        Ok(out)
     }
 
     /// Every finished job, newest first, with the path of its download directory while it
@@ -1951,7 +2015,7 @@ impl Db {
                 concat!(
                     "SELECT h.id, h.created_at, h.file_name, h.job_name, h.category, h.status, \
                      h.total_bytes, h.download_seconds, h.fail_message, h.download_dir, \
-                     h.nzb_blob, h.storage, i.path AS dir_path ",
+                     h.nzb_blob, h.storage, h.indexer_name, i.path AS dir_path ",
                     history_filter!($extra)
                 )
             };

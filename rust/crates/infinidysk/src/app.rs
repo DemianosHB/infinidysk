@@ -643,8 +643,13 @@ pub async fn serve(
             .await
             .context("loading the admin account")?,
     );
-    let sab =
-        Sab::new(Arc::clone(&queue), Arc::clone(&config)).context("building the NZB fetcher")?;
+    let search_service = Arc::new(crate::search::service_from_settings(&settings));
+    let sab = Sab::new(
+        Arc::clone(&queue),
+        Arc::clone(&config),
+        Arc::clone(&search_service),
+    )
+    .context("building the NZB fetcher")?;
     // Phase 3: Warden dead-list + preflight orchestrator, wired as search hooks.
     let warden = crate::warden::build(db.clone(), Arc::clone(&config), Arc::clone(&auth));
     // v1 seeds the 'local' warden source at store init, not in a migration.
@@ -658,7 +663,6 @@ pub async fn serve(
         let cancel = cancel.clone();
         async move { warden.run(cancel).await }
     });
-    let search_service = Arc::new(crate::search::service_from_settings(&settings));
     let preflight = crate::preflight::Orchestrator::new(crate::preflight::Parts {
         config: Arc::clone(&config),
         cache: Arc::new(crate::preflight::PreflightCache::new()),
@@ -840,6 +844,7 @@ pub async fn serve(
         client: Arc::clone(&client),
         vfs,
         health,
+        search: Arc::clone(&search.service),
         repairs,
         live,
         metrics,

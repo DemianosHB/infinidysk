@@ -15,6 +15,8 @@ use axum::response::{IntoResponse, Response};
 use axum::{Form, Json};
 use infinidysk_core::JobId;
 use infinidysk_db::{HistoryEntry, HistoryQuery, JobStatus, QueueEntry, now_ms};
+use infinidysk_profiles::SearchService;
+use infinidysk_profiles::hits::HitType;
 use infinidysk_queue::import::Snapshot;
 use infinidysk_queue::{Queue, Submission, service};
 use serde::Deserialize;
@@ -37,6 +39,9 @@ const FOLDER_GONE: &str = "Download folder no longer exists.";
 pub struct Sab {
     pub queue: Arc<Queue>,
     pub config: Arc<RwLock<ConfigStore>>,
+    /// Shared with the search routes: records indexer download hits on `addurl` and
+    /// attributes the grab to the indexer whose host serves the NZB URL (v1 behavior).
+    pub search: Arc<SearchService>,
     /// Arr discovery probes our SAB calls answer.
     pub probes: Arc<Probes>,
     fetcher: Fetcher,
@@ -47,10 +52,12 @@ impl Sab {
     pub fn new(
         queue: Arc<Queue>,
         config: Arc<RwLock<ConfigStore>>,
+        search: Arc<SearchService>,
     ) -> Result<Self, reqwest::Error> {
         Ok(Self {
             queue,
             config,
+            search,
             probes: Arc::default(),
             fetcher: Fetcher::new()?,
             last_auth_warning: AtomicI64::new(i64::MIN),
@@ -444,6 +451,7 @@ async fn add_file(state: &Sab, ctx: &Ctx, mut p: Params) -> Result<Value, Fail> 
         category: &category,
         priority,
         post_processing,
+        indexer_name: None,
     };
     let _writing = state.queue.db().write_permit().await;
     match state.queue.enqueue_owned(&job, raw).await {
@@ -469,11 +477,25 @@ async fn add_url(state: &Sab, ctx: &Ctx, p: &Params) -> Result<Value, Fail> {
         .or_else(|| fetched.as_ref().ok().and_then(|f| f.file_name.clone()))
         .unwrap_or(fallback);
     let file_name = nzb_file_name(&name).map_err(bad)?;
+    // v1 `AddUrlRequest`: an NZB URL served by a configured indexer attributes the grab
+    // to it (and counts a download hit), like the search-page "queue" action.
+    let indexer_name = {
+        let indexers = state.config.read().await.settings().indexers.clone();
+        indexers.match_enabled_by_host(url).map(|x| x.name.clone())
+    };
+    if let Some(name) = &indexer_name {
+        state
+            .search
+            .hit_tracker()
+            .record(name, HitType::Download, jiff::Timestamp::now())
+            .await;
+    }
     let job = Submission {
         file_name: &file_name,
         category: &category,
         priority,
         post_processing,
+        indexer_name: indexer_name.as_deref(),
     };
     let writing = state.queue.db().write_permit().await;
     let queued = match fetched {

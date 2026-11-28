@@ -205,6 +205,7 @@ async fn seed(s: &Sqlite) -> Seeded {
             stuck_count: 0,
             last_error: Some("busy".into()),
             content_hash: None,
+            indexer_name: None,
         },
         b"queued nzb",
     )
@@ -226,6 +227,7 @@ async fn seed(s: &Sqlite) -> Seeded {
                 download_dir: dir,
                 nzb_blob: None,
                 storage: Some("/mnt/job".into()),
+                indexer_name: None,
             },
             &[],
             &[],

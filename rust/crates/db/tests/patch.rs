@@ -915,6 +915,7 @@ async fn queued_sources_publish_before_import_and_stop_when_the_job_disappears()
             stuck_count: 0,
             last_error: None,
             content_hash: Some("wrapper".into()),
+            indexer_name: None,
         };
         fixture.db.enqueue(&job, b"nzb").await.unwrap();
         let source = fixture

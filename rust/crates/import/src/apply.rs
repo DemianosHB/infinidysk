@@ -186,6 +186,7 @@ struct HistoryRow {
     dir: Option<String>,
     dir_name: Option<String>,
     nzb: Option<String>,
+    indexer_name: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -200,6 +201,7 @@ struct QueueRow {
     bytes: i64,
     retry_at: Option<i64>,
     nzb: String,
+    indexer_name: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -286,7 +288,8 @@ pub async fn apply_with_progress(
          h.Category AS category, h.DownloadStatus AS status, \
          h.TotalSegmentBytes AS bytes, h.DownloadTimeSeconds AS seconds, \
          h.FailMessage AS fail_message, h.DownloadDirId AS dir, d.Name AS dir_name, \
-         h.NzbBlobId AS nzb FROM HistoryItems h LEFT JOIN DavItems d ON d.Id = h.DownloadDirId"
+         h.NzbBlobId AS nzb, h.IndexerName AS indexer_name \
+         FROM HistoryItems h LEFT JOIN DavItems d ON d.Id = h.DownloadDirId"
     ))
     .fetch_all(&mut cs)
     .await?;
@@ -330,6 +333,7 @@ pub async fn apply_with_progress(
                 .filter(|n| nzbs.contains(n))
                 .map(BlobId),
             storage,
+            indexer_name: h.indexer_name.filter(|s| !s.trim().is_empty()),
         });
     }
     for chunk in history.chunks(BATCH) {
@@ -350,7 +354,7 @@ pub async fn apply_with_progress(
          q.Category AS category, q.Priority AS priority, q.PostProcessing AS post_processing, \
          q.TotalSegmentBytes AS bytes, ",
         ms!("q.PauseUntil"),
-        " AS retry_at, c.NzbContents AS nzb \
+        " AS retry_at, c.NzbContents AS nzb, q.IndexerName AS indexer_name \
          FROM QueueItems q JOIN QueueNzbContents c ON c.Id = q.Id ORDER BY q.SortOrder"
     ))
     .fetch_all(&mut cs)
@@ -381,6 +385,7 @@ pub async fn apply_with_progress(
             stuck_count: 0,
             last_error: None,
             content_hash: None,
+            indexer_name: q.indexer_name.filter(|s| !s.trim().is_empty()),
         };
         db.enqueue(&job, &nzb).await?;
         done.queued += 1;
@@ -1961,10 +1966,11 @@ mod tests {
              CREATE TABLE HistoryItems (Id TEXT, CreatedAt TEXT, FileName TEXT, JobName TEXT,
                Category TEXT, DownloadStatus INTEGER, TotalSegmentBytes INTEGER,
                DownloadTimeSeconds INTEGER, FailMessage TEXT, DownloadDirId TEXT,
-               NzbBlobId TEXT);
+               NzbBlobId TEXT, IndexerName TEXT);
              CREATE TABLE QueueItems (Id TEXT, CreatedAt TEXT, FileName TEXT, JobName TEXT,
                Category TEXT, Priority INTEGER, PostProcessing INTEGER,
-               TotalSegmentBytes INTEGER, PauseUntil TEXT, SortOrder INTEGER);
+               TotalSegmentBytes INTEGER, PauseUntil TEXT, SortOrder INTEGER,
+               IndexerName TEXT);
              CREATE TABLE QueueNzbContents (Id TEXT, NzbContents TEXT);",
         )
         .execute(&mut c)
@@ -1989,7 +1995,7 @@ mod tests {
         }
         sqlx::query(
             "INSERT INTO HistoryItems VALUES ($1, '2025-01-01 00:00:00', 'job.nzb', 'job', '', \
-             1, 100, 1, NULL, $2, NULL)",
+             1, 100, 1, NULL, $2, NULL, 'test-indexer')",
         )
         .bind(Uuid::now_v7().to_string())
         .bind(job.to_string())
@@ -2029,6 +2035,7 @@ mod tests {
                 assert_eq!(item.map(|i| i.id), Some(ItemId(job)), "{cat_path:?}");
                 let history = db.history().await.unwrap();
                 assert_eq!(history[0].0.category, "uncategorized");
+                assert_eq!(history[0].0.indexer_name.as_deref(), Some("test-indexer"));
             });
         }
     }
@@ -2375,7 +2382,7 @@ mod tests {
                 .execute(&mut source).await.unwrap();
             sqlx::query(
                 "INSERT INTO HistoryItems VALUES ($1, '2025-01-01', 'job.nzb', \
-                 'job', '', 1, 100, 1, NULL, $2, $3)",
+                 'job', '', 1, 100, 1, NULL, $2, $3, NULL)",
             ).bind(history.to_string()).bind(job.to_string()).bind(download.to_string())
                 .execute(&mut source).await.unwrap();
             let db = Db::connect("sqlite::memory:").await.unwrap();
@@ -2390,7 +2397,7 @@ mod tests {
             let deleted = Uuid::now_v7();
             sqlx::query(
                 "INSERT INTO HistoryItems VALUES ($1, '2025-01-01', 'job.nzb', \
-                 'job', '', 1, 100, 1, NULL, $2, $3)",
+                 'job', '', 1, 100, 1, NULL, $2, $3, NULL)",
             ).bind(Uuid::now_v7().to_string()).bind(job.to_string()).bind(deleted.to_string())
                 .execute(&mut source).await.unwrap();
             let deleted_path = blob_path(&config.join("blobs"), &deleted.to_string()).unwrap();
@@ -2436,7 +2443,7 @@ mod tests {
             for id in [kept, linked] {
                 sqlx::query(
                     "INSERT INTO HistoryItems VALUES ($1, '2025-01-01 00:00:00', 'job.nzb', \
-                     'job', '', 1, 100, 1, NULL, $2, $3)",
+                     'job', '', 1, 100, 1, NULL, $2, $3, NULL)",
                 )
                 .bind(Uuid::now_v7().to_string())
                 .bind(job.to_string())
