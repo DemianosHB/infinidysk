@@ -665,6 +665,14 @@ pub async fn serve(
                 preflight.start(token, ty, id, cands);
             });
         search_service.install_hooks(Some(is_dead), Some(on_preflight));
+        let db_warm = db.clone();
+        let warmer: infinidysk_profiles::WarmerHook = Arc::new(move |key, ct| {
+            let db = db_warm.clone();
+            let key = key.to_owned();
+            let ct = ct.clone();
+            Box::pin(async move { crate::watchtower::verified_picks(&db, &key, &ct).await })
+        });
+        search_service.install_warmer(Some(warmer));
     }
     let search =
         crate::search::build_with_service(Arc::clone(&config), Arc::clone(&auth), search_service);

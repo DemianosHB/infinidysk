@@ -2466,6 +2466,34 @@ fn next_backoff(wt: &crate::config::Watchtower, last_resolved: Option<i64>, now:
     since.clamp(base, max)
 }
 
+/// v1 shortlist read behind `AddWarmedExactAsync`/`AddWarmedSeasonBundleAsync`: the
+/// verified-available pointers of a ready wanted item, as warm candidates.
+pub async fn verified_picks(db: &Db, key: &str, ct: &CancellationToken) -> Vec<Candidate> {
+    if ct.is_cancelled() {
+        return Vec::new();
+    }
+    let item = match db.wanted_by_key(key).await {
+        Ok(Some(item)) => item,
+        Ok(None) => return Vec::new(),
+        Err(e) => {
+            debug!(key, error = %e, "watchtower: shortlist read failed");
+            return Vec::new();
+        }
+    };
+    if item.state != STATE_READY {
+        return Vec::new();
+    }
+    read_pointers(&item.shortlist)
+        .into_iter()
+        .filter(|p| p.verdict == "available" && !p.nzb_url.trim().is_empty())
+        .map(|p| {
+            let mut c = make_candidate(&p);
+            c.verified_available = true;
+            c
+        })
+        .collect()
+}
+
 fn make_candidate(p: &WtPointer) -> Candidate {
     Candidate {
         indexer_name: p.indexer_name.clone(),

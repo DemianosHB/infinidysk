@@ -8,7 +8,7 @@
 //! strict identity matching, fallback queries, external-ID resolvers and the
 //! play-token resolution cache. HTTP goes through the shared transport in
 //! `infinidysk-indexer` (SOCKS5-aware). Watchtower/Warden/Preflight hooks are
-//! wired in Phase 3.
+//! wired by the app (Phase 3).
 
 pub mod cache;
 pub mod exclude;
@@ -22,4 +22,6 @@ pub mod resolvers;
 mod service;
 
 pub use resolvers::{ResolverConfig, Resolvers};
-pub use service::{IsDeadHook, PreflightHook, SearchOutcome, SearchService, SearchSettings};
+pub use service::{
+    IsDeadHook, PreflightHook, SearchOutcome, SearchService, SearchSettings, WarmerHook,
+};

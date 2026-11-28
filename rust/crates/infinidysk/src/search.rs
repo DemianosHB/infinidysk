@@ -60,7 +60,7 @@ pub fn search_settings(s: &Settings) -> SearchSettings {
         exclude_patterns_raw: s.search.exclude_patterns.clone(),
         search_user_agent: s.search.search_user_agent.clone(),
         user_agent: s.search.user_agent.clone(),
-        watchtower_enabled: false, // Phase 3 (Watchtower service)
+        watchtower_enabled: s.watchtower.enabled,
         warden_hide_dead: s.warden.hide_dead,
     }
 }
