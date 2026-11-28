@@ -22,6 +22,7 @@ use infinidysk_db::metrics::{
 };
 use infinidysk_health::Health;
 use infinidysk_nntp::{Client, LATENCY_BUCKETS, Phase, ProviderStats, Workload};
+use infinidysk_profiles::hits::UsageQuery;
 use infinidysk_queue::Queue;
 use infinidysk_stream::{Cache, CacheStats};
 use infinidysk_vfs::{Delivery, Kernel, Session, Vfs};
@@ -565,6 +566,34 @@ impl Window {
     }
 }
 
+/// One indexer's downloads over the last 30 days (v1 `IndexerRow` in the overview).
+#[derive(Serialize, ToSchema)]
+pub struct IndexerRow {
+    name: String,
+    completed: u64,
+    failed: u64,
+    bytes_completed: u64,
+    /// Mean `download_seconds` over completed jobs.
+    avg_seconds: u32,
+    /// `completed / (completed + failed)`, 0 when there were none.
+    success_rate: f64,
+}
+
+/// One indexer's hit counts in the current reset window (v1 `IndexerApiUsageRow`).
+#[derive(Serialize, ToSchema)]
+pub struct IndexerApiUsageRow {
+    name: String,
+    api_hits: i64,
+    /// `None` when no limit is configured.
+    api_hit_limit: Option<i64>,
+    download_hits: i64,
+    /// `None` when no limit is configured.
+    download_hit_limit: Option<i64>,
+    /// Unix milliseconds of the next window boundary.
+    reset_at_ms: i64,
+    reset_hour_utc: Option<i32>,
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct Overview {
     window: Window,
@@ -591,6 +620,10 @@ pub struct Overview {
     apps: Vec<AppUsage>,
     /// Newest first.
     breaker_events: Vec<BreakerView>,
+    /// v1-fork: per-indexer downloads over the last 30 days, most active first.
+    indexers: Vec<IndexerRow>,
+    /// v1-fork: per-indexer hits in the current reset window, most used first.
+    indexer_api_usage: Vec<IndexerApiUsageRow>,
     writer_error: Option<String>,
 }
 
@@ -1578,6 +1611,8 @@ impl Metrics {
                 .collect(),
             apps: apps(usage),
             breaker_events,
+            indexers: Vec::new(),
+            indexer_api_usage: Vec::new(),
             writer_error: error,
         })
     }
@@ -2417,19 +2452,95 @@ pub struct OverviewQuery {
     window: Option<Window>,
 }
 
-/// Throughput, provider scores and recent reads over a window, unsaved minutes included.
+/// v1 `GetOverviewStatsController.BuildIndexersAsync`: per-indexer downloads over the
+/// last 30 days, from history rows that carry an indexer name.
+#[allow(clippy::cast_precision_loss)] // job counts stay far below 2^53, where f64 is exact
+async fn indexer_rows(admin: &Admin) -> Result<Vec<IndexerRow>, infinidysk_db::Error> {
+    let scores = admin
+        .vfs
+        .db()
+        .indexer_scores(now_ms() - 30 * DAY_MS)
+        .await?;
+    Ok(scores
+        .into_iter()
+        .map(|s| {
+            let done = s.completed + s.failed;
+            IndexerRow {
+                name: s.name,
+                completed: s.completed,
+                failed: s.failed,
+                bytes_completed: s.bytes_completed,
+                avg_seconds: u32::try_from(
+                    s.completed_seconds.checked_div(s.completed).unwrap_or(0),
+                )
+                .unwrap_or(u32::MAX),
+                success_rate: if done > 0 {
+                    s.completed as f64 / done as f64
+                } else {
+                    0.0
+                },
+            }
+        })
+        .collect())
+}
+
+/// v1 `GetOverviewStatsController.BuildIndexerApiUsageAsync`: per-enabled-indexer hit counts
+/// in the current reset window, from the shared search service's hit tracker.
+async fn indexer_api_usage(admin: &Admin) -> Vec<IndexerApiUsageRow> {
+    let indexers = admin.config.read().await.settings().indexers.clone();
+    let queries: Vec<UsageQuery> = indexers
+        .indexers
+        .iter()
+        .filter(|x| x.enabled)
+        .map(|x| UsageQuery {
+            name: x.name.clone(),
+            hit_limit: x.hit_limit.map(i64::from),
+            download_limit: x.download_limit.map(i64::from),
+            reset_hour_utc: x.hit_limit_reset_time.and_then(|h| i32::try_from(h).ok()),
+        })
+        .collect();
+    if queries.is_empty() {
+        return Vec::new();
+    }
+    let snapshots = admin
+        .search
+        .hit_tracker()
+        .get_usage(&queries, jiff::Timestamp::now())
+        .await;
+    let mut rows: Vec<IndexerApiUsageRow> = queries
+        .into_iter()
+        .zip(snapshots)
+        .map(|(q, s)| IndexerApiUsageRow {
+            name: s.indexer_name,
+            api_hits: s.api_hits,
+            api_hit_limit: s.api_hit_limit,
+            download_hits: s.download_hits,
+            download_hit_limit: s.download_hit_limit,
+            reset_at_ms: s.reset_at.as_millisecond(),
+            reset_hour_utc: q.reset_hour_utc,
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        (b.api_hits + b.download_hits, &a.name).cmp(&(a.api_hits + a.download_hits, &b.name))
+    });
+    rows
+}
+
+/// Throughput, provider scores, indexer statistics and recent reads over a window, unsaved
+/// minutes included.
 #[utoipa::path(get, path = "/api/v1/overview", tag = "metrics", params(OverviewQuery),
     responses((status = 200, body = Overview)))]
 pub async fn get_overview(
     State(admin): State<Arc<Admin>>,
     Query(query): Query<OverviewQuery>,
 ) -> Result<Json<Overview>, Fail> {
-    Ok(Json(
-        admin
-            .metrics
-            .overview(query.window.unwrap_or_default())
-            .await?,
-    ))
+    let mut overview = admin
+        .metrics
+        .overview(query.window.unwrap_or_default())
+        .await?;
+    overview.indexers = indexer_rows(&admin).await?;
+    overview.indexer_api_usage = indexer_api_usage(&admin).await;
+    Ok(Json(overview))
 }
 
 /// The newest reads of one file (up to 100, kept 90 days), newest first.

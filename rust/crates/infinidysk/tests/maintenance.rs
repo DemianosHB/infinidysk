@@ -163,6 +163,7 @@ async fn download(db: &Db, folder: &str, names: &[&str]) -> (JobId, Vec<Item>) {
         download_dir: Some(dir.id),
         nzb_blob: None,
         storage: None,
+        indexer_name: None,
     };
     db.add_history(&history, &items, &[]).await.unwrap();
     (job, items.split_off(1))
@@ -335,6 +336,7 @@ async fn removes_unread_downloads_in_unowned_categories() {
             download_dir: Some(fdir.id),
             nzb_blob: None,
             storage: None,
+            indexer_name: None,
         },
         &[fdir.clone(), ffile.clone()],
         &[],

@@ -177,6 +177,7 @@ async fn a_check_keeps_its_result_when_another_blob_changes_during_provider_read
         category: "tv",
         priority: 0,
         post_processing: 0,
+        indexer_name: None,
     };
     queued
         .enqueue(&job, &nzb(&articles, len, "other.mkv"))
@@ -422,6 +423,7 @@ async fn import_at(
         category: "tv",
         priority: 0,
         post_processing: 0,
+        indexer_name: None,
     };
     let job = queue
         .enqueue(&job, &nzb(articles, len, name))
@@ -535,6 +537,7 @@ async fn missing_article_is_replaced_through_sonarr() {
         category: "tv",
         priority: 0,
         post_processing: 0,
+        indexer_name: None,
     };
     let job = queue
         .enqueue(&job, &nzb(&articles, data.len(), "a.mkv"))
@@ -667,6 +670,7 @@ async fn missing_article_is_replaced_through_sonarr() {
         category: "tv",
         priority: 0,
         post_processing: 0,
+        indexer_name: None,
     };
     let copy = queue
         .enqueue(&copy, &nzb(&articles, data.len(), "a.mkv"))
@@ -703,6 +707,7 @@ async fn unreadable_file_does_not_block_the_next() {
             category: "tv",
             priority: 0,
             post_processing: 0,
+            indexer_name: None,
         };
         queue
             .enqueue(&job, &nzb(articles, data.len(), "x.mkv"))
@@ -1604,6 +1609,7 @@ async fn broken_mp4_container_is_confirmed_then_repaired() {
         category: "tv",
         priority: 0,
         post_processing: 0,
+        indexer_name: None,
     };
     queue
         .enqueue(&job, &nzb(&articles, data.len(), "b.mp4"))

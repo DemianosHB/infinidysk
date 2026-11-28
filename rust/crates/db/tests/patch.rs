@@ -915,6 +915,7 @@ async fn queued_sources_publish_before_import_and_stop_when_the_job_disappears()
             stuck_count: 0,
             last_error: None,
             content_hash: Some("wrapper".into()),
+            indexer_name: None,
         };
         fixture.db.enqueue(&job, b"nzb").await.unwrap();
         let source = fixture
@@ -1299,6 +1300,9 @@ async fn additive_migration_keeps_existing_files_and_starts_their_generation_at_
             DROP TABLE repair_patches;
             ALTER TABLE blobs DROP COLUMN generation;
             ALTER TABLE items DROP COLUMN last_read_ms;
+            DROP INDEX IF EXISTS history_indexer;
+            ALTER TABLE queue DROP COLUMN indexer_name;
+            ALTER TABLE history DROP COLUMN indexer_name;
             DELETE FROM _sqlx_migrations WHERE version >= 10;";
         fixture.execute(old_schema, old_schema).await;
         fixture.db = Db::connect(&fixture.url).await.unwrap();

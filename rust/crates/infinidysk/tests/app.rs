@@ -12,7 +12,7 @@ use axum::Json;
 use axum::extract::{Request, State};
 use infinidysk::app::{Boot, Exit, serve};
 use infinidysk_core::{ItemId, ItemKind, JobId};
-use infinidysk_db::{HistoryEntry, Item, JobStatus};
+use infinidysk_db::{Db, HistoryEntry, Item, JobStatus, now_ms};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -1394,6 +1394,7 @@ async fn queue_management(addr: SocketAddr, database_url: &str) {
             download_dir: None,
             nzb_blob: None,
             storage: None,
+            indexer_name: None,
         };
         db.add_history(&history, &[], &[]).await.unwrap();
     }
@@ -1492,6 +1493,7 @@ async fn webhooks(addr: SocketAddr, found: &Value, database_url: &str) {
         download_dir: Some(dir.id),
         nzb_blob: None,
         storage: None,
+        indexer_name: None,
     };
     db.add_history(&history, &[dir, file.clone()], &[])
         .await
@@ -1765,6 +1767,74 @@ async fn an_nzb_inspection_reports_files_stores_nothing_and_runs_one_at_a_time()
         let (_, body) = send(addr, &admin_request("GET", path, "")).await;
         assert_eq!(body, "[]", "{path}");
     }
+    cancel.cancel();
+    server.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn overview_reports_indexer_scoreboard_and_api_usage() {
+    let (addr, cancel, server, database_url) = start().await;
+
+    // One enabled indexer with a hit limit and a fixed reset hour.
+    let (_, body) = send(addr, &admin_request("GET", "/api/v1/settings", "")).await;
+    let mut settings = serde_json::from_str::<Value>(&body).unwrap()["settings"].take();
+    settings["indexers"] = json!({
+        "indexers": [{
+            "name": "test-indexer",
+            "url": "https://indexer.example/api",
+            "apiKey": "k",
+            "hitLimit": 100,
+            "downloadLimit": 10,
+            "hitLimitResetTime": 6,
+        }]
+    });
+    let put = admin_request("PUT", "/api/v1/settings", &settings.to_string());
+    assert_eq!(status(addr, &put).await, "HTTP/1.1 200 OK");
+
+    // A finished download attributed to that indexer lands in the scoreboard.
+    let db = Db::connect(&database_url).await.unwrap();
+    db.add_history(
+        &HistoryEntry {
+            id: JobId::new(),
+            created_at: now_ms(),
+            file_name: "job.nzb".into(),
+            job_name: "job".into(),
+            category: "tv".into(),
+            status: JobStatus::Completed,
+            total_bytes: 1_000,
+            download_seconds: 20,
+            fail_message: None,
+            download_dir: None,
+            nzb_blob: None,
+            storage: None,
+            indexer_name: Some("test-indexer".into()),
+        },
+        &[],
+        &[],
+    )
+    .await
+    .unwrap();
+
+    let (_, body) = send(
+        addr,
+        &admin_request("GET", "/api/v1/overview?window=24h", ""),
+    )
+    .await;
+    let overview: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(overview["indexers"][0]["name"], "test-indexer");
+    assert_eq!(overview["indexers"][0]["completed"], 1);
+    assert_eq!(overview["indexers"][0]["failed"], 0);
+    assert_eq!(overview["indexers"][0]["bytes_completed"], 1_000);
+    assert_eq!(overview["indexers"][0]["avg_seconds"], 20);
+    assert_eq!(overview["indexers"][0]["success_rate"], 1.0);
+    assert_eq!(overview["indexer_api_usage"][0]["name"], "test-indexer");
+    assert_eq!(overview["indexer_api_usage"][0]["api_hits"], 0);
+    assert_eq!(overview["indexer_api_usage"][0]["api_hit_limit"], 100);
+    assert_eq!(overview["indexer_api_usage"][0]["download_hits"], 0);
+    assert_eq!(overview["indexer_api_usage"][0]["download_hit_limit"], 10);
+    assert_eq!(overview["indexer_api_usage"][0]["reset_hour_utc"], 6);
+    assert!(overview["indexer_api_usage"][0]["reset_at_ms"].is_i64());
+
     cancel.cancel();
     server.await.unwrap().unwrap();
 }

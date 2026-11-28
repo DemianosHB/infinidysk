@@ -449,6 +449,7 @@ async fn play_redirects_to_view_for_completed_history() {
         download_dir: Some(dir.id),
         nzb_blob: None,
         storage: None,
+        indexer_name: None,
     };
     db.add_history(&history, &[dir, video], &[]).await.unwrap();
 
@@ -581,6 +582,7 @@ async fn play_marks_ready_stream_in_library() {
         download_dir: Some(dir.id),
         nzb_blob: None,
         storage: None,
+        indexer_name: None,
     };
     db.add_history(&history, &[dir, video], &[]).await.unwrap();
 

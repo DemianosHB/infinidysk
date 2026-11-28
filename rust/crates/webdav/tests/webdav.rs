@@ -141,6 +141,7 @@ async fn setup_published(
         download_dir: Some(job.id),
         nzb_blob: None,
         storage: None,
+        indexer_name: None,
     };
     db.add_history(&history, &[job, file.clone()], &[(blob_id, &encoded)])
         .await

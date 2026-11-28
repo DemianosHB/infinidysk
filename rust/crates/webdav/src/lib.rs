@@ -832,6 +832,7 @@ async fn put(queue: &Queue, path: &str, body: Body) -> Result<Response, infinidy
         category,
         priority: 0,
         post_processing: 3,
+        indexer_name: None,
     };
     Ok(match queue.enqueue_owned(&job, Vec::from(raw)).await {
         Ok(_) => StatusCode::CREATED.into_response(),

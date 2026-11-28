@@ -1855,6 +1855,8 @@ async fn commit(
                     category: &category,
                     priority: PRIORITY_FORCE,
                     post_processing: POST_PROCESSING_NONE,
+                    // v1 `ProfilePlayController` records the candidate's indexer on the history item.
+                    indexer_name: Some(c.indexer_name.as_str()),
                 };
                 let _permit = state.queue.db().write_permit().await;
                 match state

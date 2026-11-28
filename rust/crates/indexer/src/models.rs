@@ -87,6 +87,20 @@ impl IndexerConfig {
             indexer.user_agent.as_deref(),
         )
     }
+
+    /// v1 `AddUrlRequest.MatchIndexerByHost`: the enabled indexer whose URL shares the
+    /// host of `nzb_url`, if any — attributes an `addurl` grab to its indexer.
+    pub fn match_enabled_by_host(&self, nzb_url: &str) -> Option<&ConnectionDetails> {
+        let parsed = reqwest::Url::parse(nzb_url).ok()?;
+        let host = parsed.host_str()?;
+        self.indexers.iter().find(|x| {
+            x.enabled
+                && reqwest::Url::parse(&x.url)
+                    .ok()
+                    .and_then(|u| u.host_str().map(str::to_owned))
+                    .is_some_and(|h| h.eq_ignore_ascii_case(host))
+        })
+    }
 }
 
 fn first_non_blank(a: Option<&str>, b: Option<&str>) -> Option<String> {
@@ -190,6 +204,43 @@ impl Default for ResultFilter {
             max_age_days_without_grabs: 0,
             prefer_downloaded: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod host_match_tests {
+    use super::*;
+
+    fn indexer(name: &str, url: &str, enabled: bool) -> ConnectionDetails {
+        ConnectionDetails {
+            name: name.to_owned(),
+            url: url.to_owned(),
+            enabled,
+            ..ConnectionDetails::default()
+        }
+    }
+
+    #[test]
+    fn matches_enabled_indexer_by_host_case_insensitively() {
+        let cfg = IndexerConfig {
+            indexers: vec![
+                indexer("a", "https://Indexer.Example/api", true),
+                indexer("b", "https://other.example/api", false),
+            ],
+            ..IndexerConfig::default()
+        };
+        assert_eq!(
+            cfg.match_enabled_by_host("https://indexer.example/getnzb/1")
+                .map(|x| x.name.as_str()),
+            Some("a")
+        );
+        assert_eq!(
+            cfg.match_enabled_by_host("https://other.example/x"),
+            None,
+            "disabled"
+        );
+        assert_eq!(cfg.match_enabled_by_host("https://unknown.example/x"), None);
+        assert_eq!(cfg.match_enabled_by_host("not a url"), None);
     }
 }
 

@@ -174,6 +174,7 @@ async fn run(queue: &Queue, db: &Db, xml: &[u8]) -> infinidysk_db::HistoryEntry 
         category: "tv",
         priority: 0,
         post_processing: 0,
+        indexer_name: None,
     };
     let id = queue.enqueue(&job, xml).await.unwrap();
     assert!(queue.process_next().await);
@@ -563,6 +564,7 @@ async fn missing_import(complete_during_import: bool) {
                 category: "tv",
                 priority: 0,
                 post_processing: 0,
+                indexer_name: None,
             },
             &xml,
         )
@@ -626,6 +628,7 @@ async fn compressed_archives_fail_without_starting_a_repair_download() {
                 category: "tv",
                 priority: 0,
                 post_processing: 0,
+                indexer_name: None,
             },
             &xml,
         )
@@ -664,6 +667,7 @@ async fn category_rejections_fail_without_starting_a_repair_download() {
                 category: "tv",
                 priority: 0,
                 post_processing: 0,
+                indexer_name: None,
             },
             &xml,
         )
@@ -1019,6 +1023,7 @@ async fn a_job_completes_only_once_handed_off() {
         category: "tv",
         priority: 0,
         post_processing: 0,
+        indexer_name: None,
     };
     let id = queue.enqueue(&job, &xml).await.unwrap();
     assert!(queue.process_next().await);
@@ -1085,6 +1090,7 @@ async fn a_crashing_import_fails_its_job_and_the_queue_goes_on() {
         category: "tv",
         priority: 0,
         post_processing: 0,
+        indexer_name: None,
     };
     for (name, articles) in [("Clip One.mkv", &c), ("Clip Two.mkv", &d)] {
         let xml = nzb(&[(name, articles, 4000, 1000)]);
@@ -1138,6 +1144,7 @@ async fn a_job_whose_result_cannot_be_written_is_not_rerun_at_once() {
         category: "tv",
         priority: 0,
         post_processing: 0,
+        indexer_name: None,
     };
     let id = queue
         .enqueue(&job, &nzb(&[("Clip.mkv", &articles, 3000, 1000)]))
@@ -1308,6 +1315,7 @@ async fn a_stalled_job_does_not_hold_up_the_next_one() {
         category: "tv",
         priority: 0,
         post_processing: 0,
+        indexer_name: None,
     };
     queue
         .enqueue(&job, &nzb(&[("Clip One.mkv", &c, 4000, 1000)]))
@@ -1365,6 +1373,7 @@ async fn a_stuck_attempt_is_requeued_and_retried() {
         category: "tv",
         priority: 0,
         post_processing: 0,
+        indexer_name: None,
     };
     let id = queue
         .enqueue(&job, &nzb(&[("Clip.mkv", &c, 4000, 1000)]))
@@ -1392,6 +1401,7 @@ async fn paused_queue_and_paused_jobs_wait_for_resume() {
         category: "tv",
         priority: -2,
         post_processing: 0,
+        indexer_name: None,
     };
     let id = queue.enqueue(&job, &xml).await.unwrap();
     assert!(!queue.process_next().await, "the queue is paused");
@@ -1412,6 +1422,7 @@ async fn the_same_nzb_queues_once_and_invalid_ones_fail_at_once() {
         category,
         priority: 0,
         post_processing: 0,
+        indexer_name: None,
     };
     let id = queue.enqueue(&job("tv"), &xml).await.unwrap();
     assert_eq!(queue.enqueue(&job("movies"), &xml).await.unwrap(), id);
@@ -1466,6 +1477,7 @@ async fn repair_of_a_damaged_inner_nzb_keeps_the_inner_source_and_password() {
                 category: "tv",
                 priority: 0,
                 post_processing: 0,
+                indexer_name: None,
             },
             &outer,
         )
@@ -1516,6 +1528,7 @@ async fn a_dropped_inner_nzb_file_waits_for_par2_instead_of_failing_empty() {
                 category: "tv",
                 priority: 0,
                 post_processing: 0,
+                indexer_name: None,
             },
             &outer,
         )
@@ -1656,6 +1669,7 @@ async fn a_retried_inner_nzb_opens_with_its_own_password() {
             category: "tv",
             priority: 0,
             post_processing: 0,
+            indexer_name: None,
         };
 
         let id = queue.enqueue(&job, &outer).await.unwrap();

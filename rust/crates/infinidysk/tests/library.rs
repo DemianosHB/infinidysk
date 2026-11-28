@@ -341,6 +341,7 @@ async fn converts_a_library_both_ways_and_rewrites_on_key_rotation() {
         download_dir: Some(dir.id),
         nzb_blob: None,
         storage: None,
+        indexer_name: None,
     };
     let items = [
         dir,

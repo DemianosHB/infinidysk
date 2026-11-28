@@ -218,6 +218,7 @@ async fn add(db: &Db, folder: &str) {
         download_dir: Some(dir.id),
         nzb_blob: None,
         storage: None,
+        indexer_name: None,
     };
     db.add_history(&history, &[dir, file], &[]).await.unwrap();
 }
