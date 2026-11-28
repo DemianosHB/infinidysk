@@ -4,12 +4,16 @@
 
 mod common;
 
+use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use common::{items, lit, query_param, rss, serve_newznab};
+use futures_util::future::BoxFuture;
 use infinidysk_indexer::models::{ConnectionDetails, IndexerConfig, ResultFilter};
+use infinidysk_profiles::cache::Candidate;
 use infinidysk_profiles::resolvers::ResolverConfig;
-use infinidysk_profiles::{Resolvers, SearchService, SearchSettings};
+use infinidysk_profiles::{Resolvers, SearchService, SearchSettings, WarmerHook};
 use infinidysk_search::profile::{FallbackMode, Profile, ProfileConfig};
 use tokio_util::sync::CancellationToken;
 
@@ -680,4 +684,237 @@ async fn external_kitsu_id_resolves_through_loopback_kitsu() {
         targets.iter().any(|t| t.contains("/anime/42?")),
         "{targets:?}"
     );
+}
+
+fn warm_candidate(nzb_url: &str) -> Candidate {
+    Candidate {
+        indexer_name: "watchtower".into(),
+        indexer_user_agent: "ua".into(),
+        nzb_url: nzb_url.into(),
+        title: "Warm.Pick.2026.1080p.WEB-DL-GRP".into(),
+        size: 5_000_000,
+        posted: None,
+        usenet_date: None,
+        poster: None,
+        grabs: Some(9),
+        password: None,
+        proxy_url: None,
+        source_indexer_name: None,
+        language: None,
+        subs: None,
+        info_hash: None,
+        verified_available: false,
+    }
+}
+
+fn warmer(picks: HashMap<String, Vec<Candidate>>) -> WarmerHook {
+    Arc::new(
+        move |key: &str, _ct: &CancellationToken| -> BoxFuture<'_, Vec<Candidate>> {
+            let picks = picks.clone();
+            let key = key.to_owned();
+            Box::pin(async move { picks.get(&key).cloned().unwrap_or_default() })
+        },
+    )
+}
+
+fn watchtower_service(addr: SocketAddr, enabled: bool) -> SearchService {
+    let mut settings = SearchSettings {
+        profiles: ProfileConfig {
+            profiles: vec![profile("tok", vec![])],
+        },
+        indexers: IndexerConfig {
+            indexers: vec![indexer("a", format!("http://{addr}/api"))],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    settings.watchtower_enabled = enabled;
+    SearchService::new(
+        settings,
+        Resolvers::new(ResolverConfig {
+            enabled: false,
+            ..Default::default()
+        }),
+    )
+}
+
+#[tokio::test]
+async fn watchtower_warming_boosts_verified_picks_to_top() {
+    // Indexer returns a (small) and b (large); the watchtower pick matches a and adds a new
+    // one, so both verified picks must lead the list (v1 AddWarmedExactAsync).
+    let (addr, _requests) = serve_newznab(Arc::new(|_| {
+        rss(&lit(&[
+            (
+                "Movie.2026.1080p.WEB-DL.A",
+                "http://nzb.example/a.nzb",
+                1_000_000,
+            ),
+            (
+                "Movie.2026.1080p.WEB-DL.B",
+                "http://nzb.example/b.nzb",
+                9_000_000,
+            ),
+        ]))
+    }))
+    .await;
+    let svc = watchtower_service(addr, true);
+    let mut picks = HashMap::new();
+    picks.insert(
+        "movie:tt123".to_owned(),
+        vec![
+            warm_candidate("http://nzb.example/a.nzb"),
+            warm_candidate("http://nzb.example/warm.nzb"),
+        ],
+    );
+    svc.install_warmer(Some(warmer(picks)));
+    let out = svc
+        .search(
+            "tok",
+            "movie",
+            "tt123",
+            &query(&[("t", "movie"), ("q", "Movie")]),
+            &CancellationToken::new(),
+            None,
+            false,
+            false,
+        )
+        .await
+        .expect("outcome");
+    assert_eq!(out.candidates.len(), 3);
+    assert_eq!(out.play_tokens.len(), 3);
+    assert_eq!(out.candidates[0].nzb_url, "http://nzb.example/a.nzb");
+    assert!(out.candidates[0].verified_available);
+    assert_eq!(out.candidates[1].nzb_url, "http://nzb.example/warm.nzb");
+    assert!(out.candidates[1].verified_available);
+    assert_eq!(out.candidates[2].nzb_url, "http://nzb.example/b.nzb");
+    assert!(!out.candidates[2].verified_available);
+}
+
+#[tokio::test]
+async fn watchtower_warming_marks_season_bundle_picks() {
+    // Series episode search tt1:2:3 also warms from the season bundle key season:tt1:2;
+    // matching picks are flagged in place, unknown ones appended (v1
+    // AddWarmedSeasonBundleAsync, no reordering).
+    let (addr, _requests) = serve_newznab(Arc::new(|_| {
+        rss(&lit(&[(
+            "Show.S02E03.1080p.WEB-DL",
+            "http://nzb.example/s.nzb",
+            1_000_000,
+        )]))
+    }))
+    .await;
+    let svc = watchtower_service(addr, true);
+    let mut picks = HashMap::new();
+    picks.insert(
+        "season:tt1:2".to_owned(),
+        vec![
+            warm_candidate("http://nzb.example/s.nzb"),
+            warm_candidate("http://nzb.example/bundle.nzb"),
+        ],
+    );
+    svc.install_warmer(Some(warmer(picks)));
+    let out = svc
+        .search(
+            "tok",
+            "series",
+            "tt1:2:3",
+            &query(&[
+                ("t", "tvsearch"),
+                ("q", "Show"),
+                ("season", "2"),
+                ("ep", "3"),
+            ]),
+            &CancellationToken::new(),
+            None,
+            false,
+            false,
+        )
+        .await
+        .expect("outcome");
+    assert_eq!(out.candidates.len(), 2);
+    assert_eq!(out.candidates[0].nzb_url, "http://nzb.example/s.nzb");
+    assert!(out.candidates[0].verified_available);
+    assert_eq!(out.candidates[1].nzb_url, "http://nzb.example/bundle.nzb");
+    assert!(out.candidates[1].verified_available);
+}
+
+#[tokio::test]
+async fn watchtower_warming_injects_picks_into_empty_results() {
+    // No indexer hits at all: the warm pick still becomes the (only) candidate.
+    let (addr, _requests) = serve_newznab(Arc::new(|_| rss(&[]))).await;
+    let svc = watchtower_service(addr, true);
+    let mut picks = HashMap::new();
+    picks.insert(
+        "movie:tt123".to_owned(),
+        vec![warm_candidate("http://nzb.example/warm.nzb")],
+    );
+    svc.install_warmer(Some(warmer(picks)));
+    let out = svc
+        .search(
+            "tok",
+            "movie",
+            "tt123",
+            &query(&[("t", "movie"), ("q", "Movie")]),
+            &CancellationToken::new(),
+            None,
+            false,
+            false,
+        )
+        .await
+        .expect("outcome");
+    assert_eq!(out.candidates.len(), 1);
+    assert!(out.candidates[0].verified_available);
+    assert_eq!(out.candidates[0].nzb_url, "http://nzb.example/warm.nzb");
+}
+
+#[tokio::test]
+async fn watchtower_warming_skipped_when_disabled_or_hookless() {
+    let (addr, _requests) = serve_newznab(Arc::new(|_| {
+        rss(&lit(&[(
+            "Movie.2026.1080p.WEB-DL.A",
+            "http://nzb.example/a.nzb",
+            1_000_000,
+        )]))
+    }))
+    .await;
+    let mut picks = HashMap::new();
+    picks.insert(
+        "movie:tt123".to_owned(),
+        vec![warm_candidate("http://nzb.example/a.nzb")],
+    );
+    // Disabled: hook installed but gated off by the setting.
+    let svc = watchtower_service(addr, false);
+    svc.install_warmer(Some(warmer(picks.clone())));
+    let out = svc
+        .search(
+            "tok",
+            "movie",
+            "tt123",
+            &query(&[("t", "movie"), ("q", "Movie")]),
+            &CancellationToken::new(),
+            None,
+            false,
+            false,
+        )
+        .await
+        .expect("outcome");
+    assert_eq!(out.candidates.len(), 1);
+    assert!(!out.candidates[0].verified_available);
+    // Enabled but no hook installed: no-op, no panic.
+    let svc = watchtower_service(addr, true);
+    let out = svc
+        .search(
+            "tok",
+            "movie",
+            "tt123",
+            &query(&[("t", "movie"), ("q", "Movie")]),
+            &CancellationToken::new(),
+            None,
+            false,
+            false,
+        )
+        .await
+        .expect("outcome");
+    assert_eq!(out.candidates.len(), 1);
+    assert!(!out.candidates[0].verified_available);
 }

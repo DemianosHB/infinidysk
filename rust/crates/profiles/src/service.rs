@@ -3,14 +3,15 @@
 //! limits + rate limiting, exclude patterns, dedupe by `NzbUrl`, quality/audio ordering,
 //! strict identity matching, fallback text queries and IMDB/external-ID query building.
 //!
-//! Watchtower candidate warming, Warden dead-hiding and preflight start are Phase-3
-//! features; the corresponding hooks (`warmer`/`is_dead`/`on_preflight`) are optional and
-//! wired by the app when Phase 3 lands.
+//! Watchtower candidate warming, Warden dead-hiding and preflight start are hook-driven;
+//! the corresponding hooks (`warmer`/`is_dead`/`on_preflight`) are optional and wired by
+//! the app (Phase 3).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures_util::future::BoxFuture;
 use jiff::Timestamp;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -48,7 +49,7 @@ pub struct SearchSettings {
     pub search_user_agent: String,
     /// v1 `GetUserAgent()` default `SABnzbd/5.1.0`.
     pub user_agent: String,
-    /// v1 `IsWatchtowerEnabled()` — gates the Phase-3 candidate warming hook.
+    /// v1 `IsWatchtowerEnabled()` — gates the `warmer` candidate-warming hook.
     pub watchtower_enabled: bool,
     /// v1 `IsWardenHideDeadEnabled()` — gates the `is_dead` filter hook.
     pub warden_hide_dead: bool,
@@ -91,6 +92,12 @@ pub struct SearchOutcome {
 pub type IsDeadHook = Arc<dyn Fn(i64, Option<&str>, Option<Timestamp>) -> bool + Send + Sync>;
 /// Preflight hook (Phase 3): called with the candidate list when a search starts one.
 pub type PreflightHook = Arc<dyn Fn(&str, &str, &str, &[Candidate]) + Send + Sync>;
+/// Watchtower hook (Phase 3): wanted-item key (`{type}:{id}` or `season:{imdb}:{season}`) →
+/// the item's verified-available shortlist picks as warm candidates (v1 reads
+/// `WantedItems.Shortlist` pointers with verdict `available`).
+pub type WarmerHook = Arc<
+    dyn for<'a> Fn(&'a str, &'a CancellationToken) -> BoxFuture<'a, Vec<Candidate>> + Send + Sync,
+>;
 
 pub struct SearchService {
     settings: RwLock<SearchSettings>,
@@ -101,6 +108,7 @@ pub struct SearchService {
     resolvers: Resolvers,
     is_dead: std::sync::RwLock<Option<IsDeadHook>>,
     on_preflight: std::sync::RwLock<Option<PreflightHook>>,
+    warmer: std::sync::RwLock<Option<WarmerHook>>,
 }
 
 impl SearchService {
@@ -116,6 +124,7 @@ impl SearchService {
             resolvers,
             is_dead: std::sync::RwLock::new(None),
             on_preflight: std::sync::RwLock::new(None),
+            warmer: std::sync::RwLock::new(None),
         }
     }
 
@@ -137,6 +146,14 @@ impl SearchService {
         }
         if let Ok(mut g) = self.on_preflight.write() {
             *g = on_preflight;
+        }
+    }
+
+    /// Installs the watchtower warming hook (the app wires it once the DB-backed
+    /// watchtower store exists).
+    pub fn install_warmer(&self, warmer: Option<WarmerHook>) {
+        if let Ok(mut g) = self.warmer.write() {
+            *g = warmer;
         }
     }
 
@@ -699,10 +716,15 @@ impl SearchService {
             })
             .collect();
 
-        if watchtower_enabled {
-            // Phase 3: AddWarmedExactAsync/AddWarmedSeasonBundleAsync read the watchtower
-            // shortlists from the DB and boost verified picks to the top.
-            tracing::debug!("watchtower candidate warming not wired yet (Phase 3) for {type}/{id}");
+        // Clone the hook out of the lock so no guard is held across the awaits below.
+        let warmer = if watchtower_enabled {
+            self.warmer.read().ok().and_then(|g| g.clone())
+        } else {
+            None
+        };
+        if let Some(warmer) = warmer {
+            add_warmed_exact(&mut candidates, r#type, id, &warmer, ct).await;
+            add_warmed_season_bundle(&mut candidates, r#type, id, &warmer, ct).await;
         }
 
         if candidates.is_empty() {
@@ -1032,6 +1054,92 @@ fn selected_indexers(indexer_config: &IndexerConfig, profile: &Profile) -> Vec<C
             .filter(|x| profile.indexer_names.contains(&x.name))
             .cloned()
             .collect()
+    }
+}
+
+/// v1 `AddWarmedExactAsync`: verified-available picks from the `{type}:{id}` wanted item are
+/// flagged in place (or injected) and boosted to the top of the candidate list.
+async fn add_warmed_exact(
+    candidates: &mut Vec<Candidate>,
+    r#type: &str,
+    id: &str,
+    warmer: &WarmerHook,
+    ct: &CancellationToken,
+) {
+    if r#type != "series" && r#type != "movie" {
+        return;
+    }
+    let verified = warmer(&format!("{type}:{id}"), ct).await;
+    let verified: Vec<Candidate> = verified
+        .into_iter()
+        .filter(|c| !c.nzb_url.trim().is_empty())
+        .collect();
+    if verified.is_empty() {
+        return;
+    }
+    for p in &verified {
+        if let Some(existing) = candidates.iter_mut().find(|c| c.nzb_url == p.nzb_url) {
+            existing.verified_available = true;
+        }
+    }
+    let mut ordered = Vec::with_capacity(candidates.len() + verified.len());
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut boosted = 0_usize;
+    for mut p in verified {
+        if !seen.insert(p.nzb_url.clone()) {
+            continue;
+        }
+        boosted += 1;
+        if let Some(pos) = candidates.iter().position(|c| c.nzb_url == p.nzb_url) {
+            ordered.push(candidates.remove(pos));
+        } else {
+            p.verified_available = true;
+            ordered.push(p);
+        }
+    }
+    for c in std::mem::take(candidates) {
+        if seen.insert(c.nzb_url.clone()) {
+            ordered.push(c);
+        }
+    }
+    tracing::debug!("watchtower: boosted {boosted} verified pick(s) to top for {type}/{id}");
+    *candidates = ordered;
+}
+
+/// v1 `AddWarmedSeasonBundleAsync`: verified-available picks from the `season:{imdb}:{season}`
+/// wanted item are flagged in place or appended (no reordering).
+async fn add_warmed_season_bundle(
+    candidates: &mut Vec<Candidate>,
+    r#type: &str,
+    id: &str,
+    warmer: &WarmerHook,
+    ct: &CancellationToken,
+) {
+    if r#type != "series" {
+        return;
+    }
+    let parts: Vec<&str> = id.split(':').collect();
+    if parts.len() < 3 {
+        return;
+    }
+    let Ok(season) = parts[parts.len() - 2].parse::<i32>() else {
+        return;
+    };
+    let imdb = parts[0];
+    if !imdb.get(..2).is_some_and(|p| p.eq_ignore_ascii_case("tt")) {
+        return;
+    }
+    let verified = warmer(&format!("season:{imdb}:{season}"), ct).await;
+    for mut p in verified {
+        if p.nzb_url.trim().is_empty() {
+            continue;
+        }
+        if let Some(existing) = candidates.iter_mut().find(|c| c.nzb_url == p.nzb_url) {
+            existing.verified_available = true;
+        } else {
+            p.verified_available = true;
+            candidates.push(p);
+        }
     }
 }
 
