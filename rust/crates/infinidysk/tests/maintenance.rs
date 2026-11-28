@@ -24,6 +24,7 @@ use tokio_util::sync::CancellationToken;
 
 const JOB: &str = "/api/v1/maintenance/remove-unlinked";
 const DEAD: &str = "/api/v1/maintenance/remove-dead-links";
+const UNREAD: &str = "/api/v1/maintenance/remove-unread";
 
 /// Calls the fake Sonarr received that change something: (method and path, body).
 static CALLS: Mutex<Vec<(String, Value)>> = Mutex::new(Vec::new());
@@ -280,6 +281,160 @@ async fn removes_only_files_no_library_link_points_to() {
             .await
             .unwrap()
             .is_none()
+    );
+
+    db.close().await;
+    cancel.cancel();
+    server.await.unwrap().unwrap();
+    let _ = fs::remove_dir_all(root);
+}
+
+/// Remove unread downloads, without library folders: a completed download in an unowned
+/// category goes with its history row once nothing has read it for N days; one read lately
+/// and a failed one stay. A dry run lists the download without removing anything.
+#[tokio::test]
+async fn removes_unread_downloads_in_unowned_categories() {
+    let root = std::env::temp_dir().join(format!("infinidysk-unread-{}", ItemId::new()));
+    fs::create_dir_all(root.join("mnt/.ids")).unwrap();
+
+    let db_path = root.join("infinidysk.sqlite");
+    let (addr, server, cancel) = start(&root, &[]).await;
+    let (_, view) = admin(addr, "GET", "/api/v1/settings", "").await;
+    let mut settings = view["settings"].clone();
+    settings["health"]["enabled"] = json!(false);
+    assert_eq!(
+        settings["maintenance"]["unread"],
+        json!({ "enabled": true, "days": 30 })
+    );
+    let (code, _) = admin(addr, "PUT", "/api/v1/settings", &settings.to_string()).await;
+    assert_eq!(code, "HTTP/1.1 200 OK");
+
+    let db = Db::connect(&format!("sqlite:{}", db_path.display()))
+        .await
+        .unwrap();
+    let (stale_job, stale) = download(&db, "stale", &["s.mkv"]).await;
+    let (read_job, read) = download(&db, "read", &["r.mkv"]).await;
+    db.mark_read(read[0].id).await.unwrap();
+    // A failed job with a download directory is not a candidate either.
+    let tv = db.item_by_path("/content/tv").await.unwrap().unwrap();
+    let mut fdir = Item::child(&tv, "failed", ItemKind::Directory).unwrap();
+    fdir.created_at = 1;
+    let ffile = Item::child(&fdir, "f.mkv", ItemKind::NzbFile).unwrap();
+    let failed_job = JobId::new();
+    db.add_history(
+        &HistoryEntry {
+            id: failed_job,
+            created_at: 1,
+            file_name: "failed.nzb".into(),
+            job_name: "failed".into(),
+            category: "tv".into(),
+            status: JobStatus::Failed,
+            total_bytes: 1,
+            download_seconds: 1,
+            fail_message: Some("missing articles".into()),
+            download_dir: Some(fdir.id),
+            nzb_blob: None,
+            storage: None,
+        },
+        &[fdir.clone(), ffile.clone()],
+        &[],
+    )
+    .await
+    .unwrap();
+    let exists = async |path: &str| db.item_by_path(path).await.unwrap().is_some();
+
+    let report = run(addr, &format!("{UNREAD}/run"), json!({ "dry_run": true })).await;
+    assert_eq!(report["outcome"], "finished", "{report}");
+    assert_eq!(
+        (
+            report["checked"].as_u64(),
+            report["unlinked"].as_u64(),
+            report["removed"].as_u64()
+        ),
+        (Some(1), Some(1), Some(0)),
+        "{report}"
+    );
+    let (_, page) = admin(addr, "GET", &format!("{UNREAD}/report"), "").await;
+    assert!(
+        page["files"][0]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("/content/tv/stale"),
+        "{page}"
+    );
+    assert!(
+        db.history_entry(stale_job).await.unwrap().is_some() && exists("/content/tv/stale").await,
+        "a dry run removes nothing"
+    );
+
+    let report = run(addr, &format!("{UNREAD}/run"), json!({ "dry_run": false })).await;
+    assert_eq!(report["outcome"], "finished", "{report}");
+    assert_eq!(report["removed"], 1, "{report}");
+    assert!(
+        db.history_entry(stale_job).await.unwrap().is_none(),
+        "the history row goes with the content"
+    );
+    assert!(!exists("/content/tv/stale").await);
+    assert!(!exists(&stale[0].path).await);
+    for (job, dir) in [(read_job, "read"), (failed_job, "failed")] {
+        assert!(db.history_entry(job).await.unwrap().is_some());
+        assert!(exists(&format!("/content/tv/{dir}")).await);
+    }
+
+    db.close().await;
+    cancel.cancel();
+    server.await.unwrap().unwrap();
+    let _ = fs::remove_dir_all(root);
+}
+
+/// With library folders set, a download a library symlink points to is not unread; the
+/// pointer check still runs, and the folders must hold enough links to be believed.
+#[tokio::test]
+async fn an_unread_download_a_library_link_points_to_stays() {
+    let root = std::env::temp_dir().join(format!("infinidysk-unread-linked-{}", ItemId::new()));
+    let (lib, mount) = (root.join("lib"), root.join("mnt"));
+    fs::create_dir_all(&lib).unwrap();
+    fs::create_dir_all(mount.join(".ids")).unwrap();
+
+    let db_path = root.join("infinidysk.sqlite");
+    let (addr, server, cancel) = start(&root, &[]).await;
+    let (_, view) = admin(addr, "GET", "/api/v1/settings", "").await;
+    let mut settings = view["settings"].clone();
+    settings["imports"]["library_dirs"] = json!([{ "path": lib, "arr_path": "/tv" }]);
+    settings["health"]["enabled"] = json!(false);
+    let (code, _) = admin(addr, "PUT", "/api/v1/settings", &settings.to_string()).await;
+    assert_eq!(code, "HTTP/1.1 200 OK");
+
+    let db = Db::connect(&format!("sqlite:{}", db_path.display()))
+        .await
+        .unwrap();
+    let (linked_job, linked) = download(&db, "linked", &["l.mkv"]).await;
+    let (stale_job, stale) = download(&db, "stale", &["s.mkv"]).await;
+    let pointer = |item: &Item| format!("{}/{}", mount.display(), item.id.ids_path());
+    std::os::unix::fs::symlink(pointer(&linked[0]), lib.join("l.mkv")).unwrap();
+    for index in 0..4 {
+        std::os::unix::fs::symlink(
+            format!("{}/{}.mkv", mount.display(), ItemId::new().ids_path()),
+            lib.join(format!("other-{index}.mkv")),
+        )
+        .unwrap();
+    }
+    let exists = async |path: &str| db.item_by_path(path).await.unwrap().is_some();
+
+    let report = run(addr, &format!("{UNREAD}/run"), json!({ "dry_run": true })).await;
+    assert_eq!(report["outcome"], "finished", "{report}");
+    assert_eq!(
+        report["unlinked"], 1,
+        "only the unlinked download: {report}"
+    );
+    let report = run(addr, &format!("{UNREAD}/run"), json!({ "dry_run": false })).await;
+    assert_eq!(report["removed"], 1, "{report}");
+    assert!(db.history_entry(stale_job).await.unwrap().is_none());
+    assert!(!exists("/content/tv/stale").await && !exists(&stale[0].path).await);
+    assert!(exists("/content/tv/linked").await && exists(&linked[0].path).await);
+    assert!(
+        db.history_entry(linked_job).await.unwrap().is_some(),
+        "the linked download keeps its history row"
     );
 
     db.close().await;

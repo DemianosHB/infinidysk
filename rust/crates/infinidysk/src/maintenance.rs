@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 use crate::admin::{Admin, ApiError, Fail};
 use crate::arr::Discovery;
-use crate::config::{ConfigStore, MaintenanceJob, Settings};
+use crate::config::{ConfigStore, MaintenanceJob, Settings, UNREAD_DAYS};
 use crate::handoff::{self, MAX_STRM_BYTES};
 use crate::library::{self, Library};
 
@@ -53,7 +53,11 @@ const SKIPPED_PENDING: &str = "Files the C# import skipped are not brought back 
                                the next start once the library folders are readable.";
 const PAGE_MAX: usize = 1000;
 const NO_LIBRARY: &str = "Set your library folders under Imports first.";
+const UNREAD_OFF: &str = "Remove unread downloads is turned off in the settings.";
+/// One remove-unread run removes at most this many downloads.
+const UNREAD_CAP: usize = 100;
 const MB: u64 = 1_000_000;
+const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 /// The window compacts a database once this share of it is unused, and at least
 /// [`COMPACT_MIN_FREE_BYTES`].
 const COMPACT_MIN_FREE_PERCENT: u64 = 25;
@@ -532,6 +536,7 @@ impl Maintenance {
             MaintenanceJob::RemoveDeadLinks => {
                 self.remove_dead_links(&run, cancel, &mut report).await
             }
+            MaintenanceJob::RemoveUnread => self.remove_unread(&run, cancel, &mut report).await,
             MaintenanceJob::CompactDatabase => {
                 self.compact_database(&run, cancel, &mut report).await
             }
@@ -886,6 +891,116 @@ impl Maintenance {
         Ok(())
     }
 
+    /// Removes completed downloads in categories no Arr owns that nothing has read for
+    /// `days` days, the history row together with the content, so a later play imports the
+    /// job again as new. Unlike remove unlinked it needs no library folders, and it caps
+    /// how much one run removes instead of holding on a share.
+    async fn remove_unread(
+        &self,
+        run: &Order,
+        cancel: &CancellationToken,
+        report: &mut MaintenanceReport,
+    ) -> Result<(), Stop> {
+        let live = &self.parts.live;
+        live.step("Checking settings", None);
+        let settings = self.settings().await;
+        let unread = &settings.maintenance.unread;
+        if !unread.enabled {
+            return Err(Stop::Reason(UNREAD_OFF.to_owned()));
+        }
+        let days = i64::from(unread.days.max(*UNREAD_DAYS.start()));
+        let cutoff = now_ms() - days * DAY_MS;
+        let owned: HashSet<String> = self
+            .parts
+            .discovery
+            .status()
+            .categories
+            .into_iter()
+            .map(|c| c.category)
+            .collect();
+
+        live.step("Listing downloads", None);
+        let mut downloads = self.parts.db.unread_downloads(cutoff).await?;
+        downloads.retain(|d| !owned.contains(&d.category.to_lowercase()));
+        report.checked = downloads.len() as u64;
+        downloads.retain(|d| run.only.as_ref().is_none_or(|only| only.contains(&d.dir)));
+
+        // Library pointers guard the check only when library folders are set; an
+        // add-on-only install often has none.
+        let pointers = if settings.imports.library_dirs.is_empty() {
+            None
+        } else {
+            self.library_settled().await?;
+            let found = self.read_library(&settings, cancel).await?;
+            if found.len() < MIN_POINTERS {
+                return Err(Stop::Reason(format!(
+                    "found {} links or STRM files in your library folders; expected at least \
+                     {MIN_POINTERS}",
+                    found.len()
+                )));
+            }
+            Some(found)
+        };
+        downloads.retain(|d| {
+            pointers.as_ref().is_none_or(|p| {
+                !(p.keep(d.dir, &d.dir_path) || d.files.iter().any(|f| p.keep(f.id, &f.path)))
+            })
+        });
+
+        let open: HashSet<ItemId> = self
+            .parts
+            .vfs
+            .sessions()
+            .open()
+            .iter()
+            .map(|s| s.item)
+            .collect();
+        downloads.truncate(UNREAD_CAP);
+        let bytes = |d: &infinidysk_db::UnreadDownload| {
+            d.files.iter().map(|f| f.size.unwrap_or(0)).sum::<u64>()
+        };
+        report.unlinked = downloads.len() as u64;
+        report.unlinked_bytes = downloads.iter().map(&bytes).sum();
+        report.files = downloads
+            .iter()
+            .map(|d| MaintenanceFile {
+                id: d.dir.0,
+                path: d.dir_path.clone(),
+                size_bytes: bytes(d),
+                created_ms: d.created_at,
+                removed: false,
+                arrs: Vec::new(),
+            })
+            .collect();
+        if run.dry_run {
+            return Ok(());
+        }
+
+        self.library_settled().await?;
+        live.step("Removing downloads", Some(report.unlinked));
+        for (n, (download, file)) in (1..).zip(downloads.iter().zip(report.files.iter_mut())) {
+            if cancel.is_cancelled() {
+                return Err(Stop::Cancelled);
+            }
+            if open.contains(&download.dir) || download.files.iter().any(|f| open.contains(&f.id)) {
+                report.skipped_open += 1;
+            } else if self
+                .parts
+                .db
+                .delete_unread(download.job, download.dir)
+                .await?
+            {
+                info!(path = %download.dir_path, "removed an unread download");
+                file.removed = true;
+                report.removed += 1;
+                report.removed_bytes += file.size_bytes;
+            }
+            live.done(n);
+        }
+        self.parts.handoff.sweep(&self.parts.db).await;
+        Ok(())
+    }
+
     /// `VACUUM`s the library database (SQLite only) and the metrics store when enough of
     /// them is unused and the disks have room for the copy.
     async fn compact_database(
@@ -1074,6 +1189,9 @@ impl Maintenance {
                         .library_dirs
                         .is_empty()
                         .then(|| NO_LIBRARY.to_owned()),
+                    MaintenanceJob::RemoveUnread => {
+                        (!settings.maintenance.unread.enabled).then(|| UNREAD_OFF.to_owned())
+                    }
                     MaintenanceJob::CompactDatabase => {
                         (!self.parts.queue.active().is_empty()).then(|| IMPORTING.to_owned())
                     }
