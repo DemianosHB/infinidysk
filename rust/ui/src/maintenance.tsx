@@ -40,6 +40,13 @@ export const jobCopy: Record<Job, { title: string; blurb: string; tip: string; c
     confirm: "Dead links it finds are removed and the Arrs search for their media again. Run a dry run first to see the list.",
     noun: "link",
   },
+  "remove-unread": {
+    title: "Remove unread downloads",
+    blurb: "Deletes completed downloads in categories no Arr owns that nobody has played for a while.",
+    tip: "A download goes when its category is not owned by any Arr, nothing has read it for the set number of days (counted from the later of finishing and the last WebDAV or FUSE read), and no symlink or STRM file in your library points to it — the last check only runs when library folders are set, so streaming add-on installs without them work. The history row is deleted together with the content, so a later play imports the job again as new and the NZB stays under NZB retention. Files with an open read are left for the next run, and one run removes at most 100 downloads. Arr-owned categories are never touched. A dry run lists what would go without deleting anything.",
+    confirm: "The downloads it finds are deleted from neodysk together with their history entries and cannot be brought back. Run a dry run first to see the list.",
+    noun: "download",
+  },
   "compact-database": {
     title: "Compact database",
     blurb: "Gives space the database no longer uses back to the disk.",
@@ -105,6 +112,12 @@ function summary(r: Report): string {
     if (r.skipped_open) parts.push(`${plural(r.skipped_open, "link")} left for a later run: searched too often lately`);
     return `${parts.join(", ")}.`;
   }
+  if (r.job === "remove-unread") {
+    if (r.dry_run) return r.unlinked ? `Would remove ${plural(r.unlinked, "download")} (${bytes(r.unlinked_bytes)}).` : "Nothing to remove.";
+    const parts = [r.removed ? `Removed ${plural(r.removed, "download")} (${bytes(r.removed_bytes)})` : "Removed nothing"];
+    if (r.skipped_open) parts.push(`${plural(r.skipped_open, "download")} left for next time: still being read`);
+    return `${parts.join(", ")}.`;
+  }
   if (r.outcome === "held")
     return `Found ${plural(r.unlinked, "unlinked file")} out of ${r.checked.toLocaleString()} checked. That is more than 90%, so nothing was removed.`;
   if (r.dry_run) return r.unlinked ? `Would remove ${plural(r.unlinked, "file")} (${bytes(r.unlinked_bytes)}).` : "Nothing to remove.";
@@ -165,6 +178,36 @@ export function MaintenancePanel({
             value={value.window.end}
             onChange={(e) => onChange({ ...value, window: { ...value.window, end: e.target.value } })}
           />
+        </div>
+      </Field>
+
+      <Field
+        label="Unread downloads"
+        hint="Completed downloads in categories no Arr owns go, with their history entry, after nobody has read them for this many days. Reads over WebDAV or the mount count; health checks and imports do not. Library links are honored when library folders are set."
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Switch
+            aria-label="Remove unread downloads"
+            checked={value.unread.enabled}
+            disabled={locked("maintenance.unread.enabled")}
+            onCheckedChange={(on) => onChange({ ...value, unread: { ...value.unread, enabled: on } })}
+          />
+          <span className="text-muted-foreground text-sm">Remove after nobody has read them for</span>
+          <Input
+            type="number"
+            aria-label="Days without a read"
+            className="w-24"
+            min={7}
+            max={365}
+            required
+            disabled={locked("maintenance.unread.days")}
+            value={value.unread.days}
+            onChange={(e) => {
+              const days = Number(e.target.value);
+              onChange({ ...value, unread: { ...value.unread, days: Number.isNaN(days) ? 0 : days } });
+            }}
+          />
+          <span className="text-muted-foreground text-sm">days</span>
         </div>
       </Field>
 
@@ -548,7 +591,9 @@ function Runs({ runs }: { runs: Schemas["MaintenanceRun"][] }) {
                         ? `${plural(run.files, "database")} · ${bytes(run.bytes)} reclaimed`
                         : run.job === "remove-dead-links"
                           ? plural(run.files, "link")
-                          : `${plural(run.files, "file")} · ${bytes(run.bytes)}`}
+                          : run.job === "remove-unread"
+                            ? `${plural(run.files, "download")} · ${bytes(run.bytes)}`
+                            : `${plural(run.files, "file")} · ${bytes(run.bytes)}`}
                 </span>
                 <span>
                   <Status tone={outcomes[run.outcome][1]}>{outcomes[run.outcome][0]}</Status>
