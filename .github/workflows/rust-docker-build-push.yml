@@ -55,7 +55,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
-          # Tag refs, so the stamp step can find the previous v2* tag.
+          # Tag refs, so the stamp step can list every v2* tag.
           fetch-tags: true
 
       - name: Resolve image name, tag and version
@@ -76,33 +76,20 @@ jobs:
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "version=$(echo "$tag" | sed 's|^v||')" >> "$GITHUB_OUTPUT"
 
-      # Writes the tag's release notes (all PRs merged into rust since the previous v2* tag)
-      # into the build context; build.rs embeds them ahead of the upstream changelog.
-      - name: Stamp this tag's release notes into the build
+      # Writes the release notes of every v2* tag (each tag's PRs merged into rust since the
+      # previous v2* tag, newest tag first) into the build context, so each build serves the
+      # full fork release history; build.rs embeds them ahead of the upstream changelog.
+      - name: Stamp the v2* release notes into the build
         if: steps.vars.outputs.tag != 'rust-dev'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.vars.outputs.tag }}
-          VERSION: ${{ steps.vars.outputs.version }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          out="rust/release-notes.build.md"
-          date="$(git log -1 --format=%cs)"
-          prev="$(git tag -l 'v2*' --sort=-creatordate | { grep -v "^${TAG}$" || true; } | head -n1)"
-          if [ -n "$prev" ]; then
-            since="$(git for-each-ref --format='%(creatordate:iso-strict)' "refs/tags/$prev")"
-          else
-            since="1970-01-01T00:00:00+00:00"
-          fi
-          {
-            printf '## [%s](https://github.com/%s/releases/tag/%s) (%s)\n\n### Changes\n\n' "$VERSION" "$REPO" "$TAG" "$date"
-            gh pr list --repo "$REPO" --state merged --base rust --limit 200 \
-              --json number,title,url,mergedAt \
-              | jq -r --arg since "$since" \
-                '[.[] | select((.mergedAt | fromdateiso8601) > ($since | fromdateiso8601))] | sort_by(.mergedAt) | .[] | "* \(.title) ([#\(.number)](\(.url)))"'
-          } > "$out"
-          cat "$out"
+          gh pr list --repo "$REPO" --state merged --base rust --limit 1000 \
+            --json number,title,url,mergedAt \
+            | bash .github/scripts/stamp-release-notes.sh --repo "$REPO" --out rust/release-notes.build.md
+          cat rust/release-notes.build.md
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

@@ -3,17 +3,22 @@ name: Rust CI
 # The Rust port of this fork lives on the `rust` branch under rust/ (see rust/PORTING.md);
 # the v1 (.NET) line keeps its own v1-* workflows. The workflow is path-filtered on
 # purpose and is NOT a required check: .NET-only PRs must not be blocked when it skips.
-# It only triggers on rust/** changes, so CI-only PRs on a branch without the
-# workspace never start it; run it manually via workflow_dispatch.
+# It triggers on rust/** changes plus the workflow scripts under .github/, so CI-only
+# PRs on a branch without the workspace never start it; run it manually via
+# workflow_dispatch.
 on:
   pull_request:
     branches: [rust]
     paths:
       - "rust/**"
+      - ".github/scripts/**"
+      - ".github/workflows/**"
   push:
     branches: [rust]
     paths:
       - "rust/**"
+      - ".github/scripts/**"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 permissions:
@@ -27,6 +32,13 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  workflow-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify the release-notes stamp fixtures
+        run: bash .github/scripts/test-stamp-release-notes.sh
+
   fmt:
     runs-on: ubuntu-latest
     steps:
