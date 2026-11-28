@@ -2985,6 +2985,13 @@ export interface components {
             scheduled: components["schemas"]["MaintenanceJob"][];
             /**
              * @default {
+             *       "days": 30,
+             *       "enabled": true
+             *     }
+             */
+            unread: components["schemas"]["UnreadSettings"];
+            /**
+             * @default {
              *       "end": "06:00",
              *       "start": "03:00"
              *     }
@@ -3020,7 +3027,7 @@ export interface components {
          * @description A maintenance job, in the order the window runs them.
          * @enum {string}
          */
-        MaintenanceJob: "backup-database" | "remove-unlinked" | "remove-dead-links" | "compact-database";
+        MaintenanceJob: "backup-database" | "remove-unlinked" | "remove-dead-links" | "remove-unread" | "compact-database";
         MaintenanceJobView: {
             /** @description Runs in every window; `scheduled` cannot be turned off. */
             always_scheduled: boolean;
@@ -4453,6 +4460,10 @@ export interface components {
              *       "scheduled": [
              *         "remove-dead-links"
              *       ],
+             *       "unread": {
+             *         "days": 30,
+             *         "enabled": true
+             *       },
              *       "window": {
              *         "end": "06:00",
              *         "start": "03:00"
@@ -4758,6 +4769,19 @@ export interface components {
         };
         /** @enum {string} */
         UnownedAction: "delete" | "action_needed";
+        /** @description Removing completed downloads in unowned categories that nobody has read for a while. */
+        UnreadSettings: {
+            /**
+             * @description Days without a read after which a completed download in an unowned category goes.
+             * @default 30
+             */
+            days: number;
+            /**
+             * @description Whether the remove-unread job may run.
+             * @default true
+             */
+            enabled: boolean;
+        };
         Update: {
             /** @description The GitHub release notes of that release. */
             url: string;

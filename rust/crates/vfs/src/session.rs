@@ -4,7 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io::{self, SeekFrom};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, RwLock};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -28,6 +28,8 @@ const MIN_IDLE: Duration = Duration::from_millis(50);
 const MIN_OP: Duration = Duration::from_millis(1);
 /// Slow FUSE metadata calls listed while tracing; the oldest go first.
 const KEPT_OPS: usize = 1000;
+/// A read whose predecessor is at least this old is worth persisting again.
+const DAY_NS: u64 = 86_400_000_000_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Delivery {
@@ -46,6 +48,10 @@ impl Delivery {
         }
     }
 }
+
+/// Called with an item when an external read served bytes and the item's last read is at
+/// least a day old; the app persists that as the item's durable last-read.
+pub type ReadHook = Arc<dyn Fn(ItemId) + Send + Sync>;
 
 /// Who opened a file.
 #[derive(Clone, Debug)]
@@ -380,6 +386,8 @@ pub struct Sessions {
     served: [AtomicU64; 2],
     /// A tracing window was set, so metadata calls take the lock to be noted.
     traced: AtomicBool,
+    /// Fired when an external read is worth persisting again.
+    read_hook: RwLock<Option<ReadHook>>,
     inner: Mutex<Inner>,
 }
 
@@ -411,6 +419,21 @@ impl Sessions {
         let mut inner = self.lock();
         self.traced.store(tracing.is_some(), Ordering::Relaxed);
         inner.tracing = tracing;
+    }
+
+    /// Sets the hook fired when an external read is worth persisting again.
+    pub fn set_read_hook(&self, hook: ReadHook) {
+        *self
+            .read_hook
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = Some(hook);
+    }
+
+    fn read_hook(&self) -> Option<ReadHook> {
+        self.read_hook
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// The tracing window, if still running.
@@ -700,8 +723,14 @@ impl AsyncRead for Handle {
             }
             Poll::Ready(Ok(())) => {
                 session.waiting_since.store(0, Ordering::Relaxed);
-                session.last_read.store(now_ns(), Ordering::Relaxed);
+                let previous = session.last_read.swap(now_ns(), Ordering::Relaxed);
                 let n = (buf.filled().len() - before) as u64;
+                if n > 0
+                    && (previous == 0 || now_ns().saturating_sub(previous) >= DAY_NS)
+                    && let Some(hook) = guard.sessions.read_hook()
+                {
+                    hook(session.item);
+                }
                 session.served.fetch_add(n, Ordering::Relaxed);
                 session.pos.fetch_add(n, Ordering::Relaxed);
                 guard.sessions.served[session.delivery as usize].fetch_add(n, Ordering::Relaxed);

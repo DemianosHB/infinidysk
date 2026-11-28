@@ -417,6 +417,22 @@ pub async fn serve(
         (settings.repair.readahead_enabled && infinidysk_core::experiment("par2-repair"))
             .then_some(settings.repair.readahead_window_seconds),
     );
+    // External reads (WebDAV, FUSE) stamp the item's durable last-read, at most once a day.
+    let (read_tx, mut read_rx) = mpsc::unbounded_channel::<ItemId>();
+    vfs.set_read_hook(Arc::new(move |item| {
+        // Fails only at shutdown, when nobody records reads anymore.
+        let _ = read_tx.send(item);
+    }));
+    tokio::spawn({
+        let db = db.clone();
+        async move {
+            while let Some(item) = read_rx.recv().await {
+                if let Err(error) = db.mark_read(item).await {
+                    warn!(reason = %error, "could not record a read");
+                }
+            }
+        }
+    });
     let handoff = Arc::new(crate::handoff::Writer::new(
         Arc::clone(&vfs),
         (boot.uid, boot.gid),

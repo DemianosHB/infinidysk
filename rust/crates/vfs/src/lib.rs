@@ -31,8 +31,8 @@ pub use fence::{
 };
 pub use reader::{PartsReader, Reader};
 pub use session::{
-    Delivery, FuseOp, FuseOps, Handle, OpInFlight, Origin, PendingOp, PendingRead, ReadStage,
-    Request, Session, Sessions, Tracing,
+    Delivery, FuseOp, FuseOps, Handle, OpInFlight, Origin, PendingOp, PendingRead, ReadHook,
+    ReadStage, Request, Session, Sessions, Tracing,
 };
 
 /// What the kernel applied to the FUSE mount, read back after tuning; `None` where
@@ -400,6 +400,11 @@ impl Vfs {
     /// Read-ahead for files opened from now on.
     pub fn set_read_ahead(&self, bytes: u64) {
         self.read_ahead.store(bytes, Ordering::Relaxed);
+    }
+
+    /// Sets the hook [`Sessions`] fires when an external read is worth persisting again.
+    pub fn set_read_hook(&self, hook: ReadHook) {
+        self.sessions.set_read_hook(hook);
     }
 
     /// Read-ahead PAR2 repair window in seconds for files opened from now on (v1 fork

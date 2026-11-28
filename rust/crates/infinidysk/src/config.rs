@@ -702,6 +702,7 @@ pub struct Maintenance {
     #[serde(deserialize_with = "known_jobs")]
     pub scheduled: Vec<MaintenanceJob>,
     pub backup: BackupSettings,
+    pub unread: UnreadSettings,
 }
 
 impl Default for Maintenance {
@@ -710,9 +711,31 @@ impl Default for Maintenance {
             window: MaintenanceWindow::default(),
             scheduled: vec![MaintenanceJob::RemoveDeadLinks],
             backup: BackupSettings::default(),
+            unread: UnreadSettings::default(),
         }
     }
 }
+
+/// Removing completed downloads in unowned categories that nobody has read for a while.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(default)]
+pub struct UnreadSettings {
+    /// Whether the remove-unread job may run.
+    pub enabled: bool,
+    /// Days without a read after which a completed download in an unowned category goes.
+    pub days: u32,
+}
+
+impl Default for UnreadSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            days: 30,
+        }
+    }
+}
+
+pub const UNREAD_DAYS: RangeInclusive<u32> = 7..=365;
 
 /// Where backups go and how many the backup job keeps.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -783,15 +806,19 @@ pub enum MaintenanceJob {
     /// Removes library links and STRM files whose download is gone, and has the Arr
     /// search for it again.
     RemoveDeadLinks,
+    /// Deletes completed downloads in unowned categories that nothing has read for N days,
+    /// the history row together with the content.
+    RemoveUnread,
     /// Rewrites the SQLite databases without their unused space; always scheduled.
     CompactDatabase,
 }
 
 impl MaintenanceJob {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::BackupDatabase,
         Self::RemoveUnlinked,
         Self::RemoveDeadLinks,
+        Self::RemoveUnread,
         Self::CompactDatabase,
     ];
 
@@ -801,6 +828,7 @@ impl MaintenanceJob {
             Self::BackupDatabase => "backup-database",
             Self::RemoveUnlinked => "remove-unlinked",
             Self::RemoveDeadLinks => "remove-dead-links",
+            Self::RemoveUnread => "remove-unread",
             Self::CompactDatabase => "compact-database",
         }
     }
@@ -813,7 +841,10 @@ impl MaintenanceJob {
 
     #[must_use]
     pub const fn has_dry_run(self) -> bool {
-        matches!(self, Self::RemoveUnlinked | Self::RemoveDeadLinks)
+        matches!(
+            self,
+            Self::RemoveUnlinked | Self::RemoveDeadLinks | Self::RemoveUnread
+        )
     }
 }
 
@@ -1835,6 +1866,12 @@ impl Settings {
             &mut self.maintenance.backup.keep,
             &BACKUP_KEEP,
             d.maintenance.backup.keep,
+        );
+        reset(
+            "maintenance.unread.days",
+            &mut self.maintenance.unread.days,
+            &UNREAD_DAYS,
+            d.maintenance.unread.days,
         );
         if !PROWLARR_SYNC_INTERVAL_MINUTES.contains(&self.prowlarr.sync_interval_minutes) {
             reset_warning(
