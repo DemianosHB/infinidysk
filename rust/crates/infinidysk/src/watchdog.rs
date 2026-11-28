@@ -65,6 +65,7 @@ async fn require_api_key(State(state): State<Arc<Watchdog>>, req: Request, next:
 #[serde(rename_all = "camelCase")]
 struct EntryDto {
     click_id: String,
+    /// Unix seconds, matching v1's `attemptedAtUnix`; the table stores Unix milliseconds.
     attempted_at_unix: i64,
     content_type: String,
     requested_title: String,
@@ -118,7 +119,7 @@ async fn get_entries(
         .into_iter()
         .map(|a| EntryDto {
             click_id: a.click_id,
-            attempted_at_unix: a.attempted_at,
+            attempted_at_unix: a.attempted_at.div_euclid(1000),
             content_type: a.content_type,
             requested_title: a.requested_title,
             candidate_title: a.candidate_title,
