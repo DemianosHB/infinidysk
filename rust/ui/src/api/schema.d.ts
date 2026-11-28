@@ -1100,7 +1100,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Throughput, provider scores and recent reads over a window, unsaved minutes included. */
+        /**
+         * Throughput, provider scores, indexer statistics and recent reads over a window, unsaved
+         *     minutes included.
+         */
         get: operations["get_overview"];
         put?: never;
         post?: never;
@@ -1265,6 +1268,23 @@ export interface paths {
         put?: never;
         /** Queues an uploaded NZB, like a download client's `addfile`. */
         post: operations["post_queue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/queue/from-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Queues an NZB fetched from a URL, like a download client's `addurl` (v1 search page "Mount"). */
+        post: operations["post_queue_from_url"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2049,6 +2069,78 @@ export interface components {
         CheckRepair: "none" | "replacement_requested" | "replaced" | "action_needed" | "deleted";
         /** @enum {string} */
         CheckResult: "healthy" | "missing" | "degraded" | "inconclusive" | "damaged";
+        /** @description Ported from `IndexerConfig.ConnectionDetails`. */
+        ConnectionDetails: {
+            /** @default  */
+            apiKey: string;
+            /**
+             * Format: int32
+             * @default null
+             */
+            downloadLimit: number | null;
+            /** @default false */
+            enableStrictMatching: boolean;
+            /** @default true */
+            enabled: boolean;
+            /** @default null */
+            extraMovieCategories: string | null;
+            /** @default null */
+            extraTvCategories: string | null;
+            /** @default null */
+            filter: components["schemas"]["ResultFilter"] | null;
+            /**
+             * Format: int32
+             * @default null
+             */
+            hitLimit: number | null;
+            /**
+             * Format: int32
+             * @default null
+             */
+            hitLimitResetTime: number | null;
+            /** @default false */
+            ignoreCategoryFilter: boolean;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            maxRequestsPerMinute: number;
+            /**
+             * Format: int64
+             * @default null
+             */
+            maxResponseBytes: number | null;
+            /** @default  */
+            name: string;
+            /**
+             * Format: int32
+             * @description `Some` marks this entry as owned by Prowlarr pull-sync; manual entries omit it.
+             * @default null
+             */
+            prowlarrIndexerId: number | null;
+            /** @default null */
+            proxyUrl: string | null;
+            /** @default null */
+            retrieveUserAgent: string | null;
+            /**
+             * Format: int32
+             * @default null
+             */
+            searchResultLimit: number | null;
+            /** @default null */
+            searchUserAgent: string | null;
+            /** @default false */
+            skipTlsVerification: boolean;
+            /**
+             * Format: int64
+             * @default null
+             */
+            timeoutSeconds: number | null;
+            /** @default  */
+            url: string;
+            /** @default null */
+            userAgent: string | null;
+        };
         /** @enum {string} */
         ConnectionState: "connected" | "waiting" | "paused" | "failing";
         Contents: {
@@ -2222,6 +2314,11 @@ export interface components {
             name: string;
             title: string;
         };
+        /**
+         * @description Ported from `ProfileConfig.FallbackMode`.
+         * @enum {string}
+         */
+        FallbackMode: "Off" | "Title" | "Broad";
         FileDetails: {
             /** @description Newest first. */
             checks: components["schemas"]["HealthCheckView"][];
@@ -2289,6 +2386,34 @@ export interface components {
             reason?: string | null;
             /** Format: int64 */
             rewrite: number;
+        };
+        FromUrl: {
+            /** @description One of the configured categories; the manual category when absent. */
+            category?: string | null;
+            /** @description Display name; falls back to the fetched file name, then a timestamp. */
+            nzbname?: string | null;
+            /** @description The NZB URL to fetch and queue. */
+            url: string;
+        };
+        /** @description v1 `grab.stall-failover-*` — abort a stalled play candidate and try the next one. */
+        Grab: {
+            /**
+             * Format: int32
+             * @description v1 default 5, clamp 5..=120.
+             * @default 5
+             */
+            stallFailoverCeilingSeconds: number;
+            /**
+             * @description v1 default true.
+             * @default true
+             */
+            stallFailoverEnabled: boolean;
+            /**
+             * Format: int32
+             * @description v1 default 2, clamp 2..=60.
+             * @default 2
+             */
+            stallFailoverWindowSeconds: number;
         };
         /** @description Health monitoring choices; everything else is fixed by `infinidysk-lab:docs/health-policy.md`. */
         Health: {
@@ -2402,6 +2527,13 @@ export interface components {
         /** @description How finished jobs reach the Arrs (`infinidysk-lab:docs/strm-support-proposal.md` §4). */
         Imports: {
             /**
+             * @description Exact chmod for handoff files and the folders made for them, as 3-4 octal digits
+             *     (e.g. `"664"`, `"2775"`). Unset: the process umask decides, as 1.x did. Reported
+             *     to SAB clients as `misc.permissions`.
+             * @default null
+             */
+            handoff_permissions: string | null;
+            /**
              * @description Folders holding the Arrs' libraries, walked when pointers change form.
              * @default []
              */
@@ -2418,6 +2550,77 @@ export interface components {
              * @default
              */
             strm_key: components["schemas"]["Secret"];
+        };
+        /** @description One indexer's hit counts in the current reset window (v1 `IndexerApiUsageRow`). */
+        IndexerApiUsageRow: {
+            /**
+             * Format: int64
+             * @description `None` when no limit is configured.
+             */
+            api_hit_limit?: number | null;
+            /** Format: int64 */
+            api_hits: number;
+            /**
+             * Format: int64
+             * @description `None` when no limit is configured.
+             */
+            download_hit_limit?: number | null;
+            /** Format: int64 */
+            download_hits: number;
+            name: string;
+            /**
+             * Format: int64
+             * @description Unix milliseconds of the next window boundary.
+             */
+            reset_at_ms: number;
+            /** Format: int32 */
+            reset_hour_utc?: number | null;
+        };
+        /** @description Ported from `IndexerConfig`. */
+        IndexerConfig: {
+            /** @default [] */
+            indexers: components["schemas"]["ConnectionDetails"][];
+            /**
+             * Format: int64
+             * @default null
+             */
+            maxResponseBytes: number | null;
+            /**
+             * @description Global HTTP(S) proxy URL applied to indexers without their own. `None` = the
+             *     process-wide SOCKS5 proxy policy applies (see `http::build_client`).
+             * @default null
+             */
+            proxyUrl: string | null;
+            /**
+             * Format: int32
+             * @default null
+             */
+            searchResultLimit: number | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            timeoutSeconds: number | null;
+        };
+        /** @description One indexer's downloads over the last 30 days (v1 `IndexerRow` in the overview). */
+        IndexerRow: {
+            /**
+             * Format: int32
+             * @description Mean `download_seconds` over completed jobs.
+             */
+            avg_seconds: number;
+            /** Format: int64 */
+            bytes_completed: number;
+            /** Format: int64 */
+            completed: number;
+            /** Format: int64 */
+            failed: number;
+            name: string;
+            /**
+             * Format: double
+             * @description `completed / (completed + failed)`, 0 when there were none.
+             */
+            success_rate: number;
         };
         /** @enum {string} */
         InspectAccess: "plain" | "password_required" | "password_validated" | "unsupported" | "unknown";
@@ -3404,6 +3607,10 @@ export interface components {
             /** Format: int64 */
             bucket_ms: number;
             catalogue: components["schemas"]["CatalogueView"];
+            /** @description v1-fork: per-indexer hits in the current reset window, most used first. */
+            indexer_api_usage: components["schemas"]["IndexerApiUsageRow"][];
+            /** @description v1-fork: per-indexer downloads over the last 30 days, most active first. */
+            indexers: components["schemas"]["IndexerRow"][];
             /** @description Since the metrics store was created. */
             lifetime: components["schemas"]["Totals"];
             points: components["schemas"]["Point"][];
@@ -3566,6 +3773,82 @@ export interface components {
             /** @description Every preset's values, to show what picking one changes. */
             presets: components["schemas"]["PresetView"][];
         };
+        /** @description v1 `play.*` — the play/failover path (Phase 3). */
+        Play: {
+            /**
+             * Format: int32
+             * @description v1 default 5 min, clamp 1..=1440.
+             * @default 5
+             */
+            candidateNegativeCacheMinutes: number;
+            /**
+             * @description v1 `play.exclude-patterns`, fallback `search.exclude-patterns`.
+             * @default
+             */
+            excludePatterns: string;
+            /**
+             * Format: int32
+             * @description v1 default 3, clamp 1..=30.
+             * @default 3
+             */
+            hedgeDelaySeconds: number;
+            /**
+             * Format: int32
+             * @description v1 default 10, clamp 1..=200.
+             * @default 10
+             */
+            maxAttempts: number;
+            /**
+             * Format: int32
+             * @description v1 default 3, clamp 1..=10.
+             * @default 3
+             */
+            maxCandidates: number;
+            /**
+             * @description v1 default true.
+             * @default true
+             */
+            preferSubtitles: boolean;
+            /**
+             * Format: int32
+             * @description v1 default 168 h, clamp 1..=720.
+             * @default 168
+             */
+            resolutionCacheTtlHours: number;
+            /**
+             * @description Fork stall negative marking, default false.
+             * @default false
+             */
+            stallNegativeMarkingEnabled: boolean;
+            /**
+             * Format: int32
+             * @description v1 default 15 min, clamp 1..=1440.
+             * @default 15
+             */
+            stallNegativeMarkingMinutes: number;
+            /**
+             * Format: int32
+             * @description v1 default 30, clamp 3..=180.
+             * @default 30
+             */
+            totalBudgetSeconds: number;
+            /**
+             * @description `stat` | `body` | `none` (v1 `GetPlayVerifyMode`, default none).
+             * @default none
+             */
+            verifyMode: string;
+            /**
+             * Format: int32
+             * @description v1 default 3, clamp 1..=10.
+             * @default 3
+             */
+            verifySampleCount: number;
+            /**
+             * @description v1 default true.
+             * @default true
+             */
+            watchdogEnabled: boolean;
+        };
         /** @description Bytes and requests in one bucket starting at `ts`. */
         Point: {
             /** Format: int64 */
@@ -3637,6 +3920,32 @@ export interface components {
             ts: number;
             /** Format: int64 */
             unhealthy: number;
+        };
+        /** @description v1 `preflight.*` — background verification of search candidates (Phase 3). */
+        Preflight: {
+            /**
+             * Format: int32
+             * @description v1 default 5, clamp 0..=120.
+             * @default 5
+             */
+            indexerMaxWaitSeconds: number;
+            /**
+             * Format: int32
+             * @description v1 default 20, clamp 1..=50.
+             * @default 20
+             */
+            maxAttempts: number;
+            /**
+             * @description `off` | `light` | `standard` | `full` (v1 `GetPreflightMode`, default off).
+             * @default off
+             */
+            mode: string;
+            /**
+             * Format: int32
+             * @description v1 default 120, clamp 10..=1800.
+             * @default 120
+             */
+            ttlSeconds: number;
         };
         /** @enum {string} */
         Preset: "balanced" | "max_playback" | "low_resources";
@@ -3738,6 +4047,56 @@ export interface components {
              */
             uptime_ms: number;
         };
+        /** @description One search profile. Ported from `ProfileConfig.Profile`. */
+        Profile: {
+            /**
+             * @description `None`/empty = all adapters enabled.
+             * @default null
+             */
+            enabledAdapters: string[] | null;
+            /**
+             * @description Empty = all enabled indexers.
+             * @default []
+             */
+            indexerNames: string[];
+            /** @default Off */
+            movieFallback: components["schemas"]["FallbackMode"];
+            /**
+             * Format: int32
+             * @default 3
+             */
+            movieFallbackMinResults: number;
+            /** @default  */
+            name: string;
+            /**
+             * @description Ordered preferred audio languages (e.g. `["de", "en"]`); names like "German" are
+             *     normalised by [`crate::audio::normalize_preferred`]. Ordering bias, never a filter.
+             * @default null
+             */
+            preferredAudioLanguages: string[] | null;
+            /** @default Off */
+            qualitySort: components["schemas"]["QualitySortMode"];
+            /**
+             * Format: int32
+             * @description Legacy key; migrated by [`Profile::migrate_legacy`].
+             * @default null
+             */
+            queryFallbackMinResults: number | null;
+            /** @default  */
+            token: string;
+            /** @default Off */
+            tvFallback: components["schemas"]["FallbackMode"];
+            /**
+             * Format: int32
+             * @default 3
+             */
+            tvFallbackMinResults: number;
+        };
+        /** @description Ported from `ProfileConfig`. */
+        ProfileConfig: {
+            /** @default [] */
+            profiles: components["schemas"]["Profile"][];
+        };
         Progress: {
             /** Format: int64 */
             converted: number;
@@ -3783,7 +4142,7 @@ export interface components {
             /**
              * Format: uuid
              * @description Stable across edits, so masked secrets can be matched back.
-             * @default 01a20524-58a4-72fe-af6b-311eb9d473e8
+             * @default 01a222e7-fc81-72f3-ae47-9d441c8b5040
              */
             id: string;
             /**
@@ -3930,6 +4289,85 @@ export interface components {
              */
             used: number;
         };
+        /** @description v1 `prowlarr.*`: pull-sync connection, interval and persisted last-sync status. */
+        Prowlarr: {
+            /** @default  */
+            api_key: components["schemas"]["Secret"];
+            /** @default false */
+            sync_enabled: boolean;
+            /**
+             * Format: int32
+             * @description Minutes between automatic syncs; clamped to [`PROWLARR_SYNC_INTERVAL_MINUTES`].
+             * @default 60
+             */
+            sync_interval_minutes: number;
+            /** @default null */
+            sync_status: components["schemas"]["ProwlarrSyncStatus"] | null;
+            /** @default  */
+            url: string;
+        };
+        /** @description v1 `prowlarr.sync-status` (persisted last sync outcome). */
+        ProwlarrSyncStatus: {
+            /**
+             * Format: int32
+             * @default 0
+             */
+            added: number;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            lastAttemptAt: number;
+            /** @default null */
+            lastError: string | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            lastSuccessAt: number | null;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            remoteIndexerCount: number;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            removed: number;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            skipped: number;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            updated: number;
+        };
+        /**
+         * @description The process-wide outbound SOCKS5 proxy, ported from the v1 fork's
+         *     `general.socks5-proxy` / `general.socks5-proxy-bypass` settings. All non-local outbound
+         *     traffic — NNTP provider connections and HTTP — is tunneled through it; loopback
+         *     addresses, single-label Docker service names and the bypass entries always connect
+         *     directly. Read per connection, so saving applies to new connections.
+         */
+        Proxy: {
+            /**
+             * @description `socks5://host:port` (`socks5h://` is accepted and normalized); empty disables the
+             *     proxy.
+             * @default
+             */
+            socks5: string;
+            /**
+             * @description Comma/whitespace-separated exceptions that connect directly: `*`, a host name (also
+             *     covering its subdomains), a domain suffix (`.lan` or `*.lan`), an IP address, or a
+             *     CIDR range.
+             * @default
+             */
+            socks5_bypass: string;
+        };
         /**
          * @description One pressure line: percent of wall time stalled, averaged by the kernel over 10, 60 and
          *     300 s, and `total_us` stalled since the cgroup was created (cumulative).
@@ -3944,6 +4382,11 @@ export interface components {
             /** Format: int64 */
             total_us: number;
         };
+        /**
+         * @description Ported from `ProfileConfig.QualitySortMode` (JSON string enum in v1).
+         * @enum {string}
+         */
+        QualitySortMode: "Off" | "Resolution" | "ResolutionAndSource";
         /** @description Import queue choices; everything else is fixed by `infinidysk-lab:docs/import-policy.md`. */
         Queue: {
             /**
@@ -4192,6 +4635,26 @@ export interface components {
             links: string[];
             path: string;
         };
+        /**
+         * @description Read-ahead PAR2 repair, ported from the v1 fork's `repair.readahead.*` settings. When
+         *     enabled (and the `par2-repair` experiment is on), an active stream widens its prefetch
+         *     window to measured-bitrate × window ahead of the read head — capped by the in-flight
+         *     article RAM budget — so missing or corrupt articles are discovered and repaired before
+         *     playback reaches them.
+         */
+        Repair: {
+            /**
+             * @description Widen the prefetch window of active streams for ahead-of-playback repair.
+             * @default false
+             */
+            readahead_enabled: boolean;
+            /**
+             * Format: int32
+             * @description Read-ahead window in seconds.
+             * @default 45
+             */
+            readahead_window_seconds: number;
+        };
         RescueView: {
             /** Format: int64 */
             count: number;
@@ -4294,6 +4757,43 @@ export interface components {
              */
             segment_cache_logical_bytes: number;
         };
+        /**
+         * @description Ported from `IndexerConfig.ResultFilter` — per-indexer drop/rank rules applied before
+         *     merging (see [`crate::filter`]).
+         */
+        ResultFilter: {
+            /** @default false */
+            enabled: boolean;
+            /**
+             * Format: int32
+             * @description Grace window (hours) for the `MinGrabs` rule; 0 disables the grace window.
+             * @default 6
+             */
+            grabsGraceHours: number;
+            /**
+             * Format: int32
+             * @description Drop releases older than N days that still have zero recorded grabs. 0 = disabled.
+             * @default 0
+             */
+            maxAgeDaysWithoutGrabs: number;
+            /**
+             * Format: int32
+             * @description Minimum download count to keep a release. 0 = disabled.
+             * @default 0
+             */
+            minGrabs: number;
+            /**
+             * @description Sort this indexer's items by grabs descending before merging (missing grabs sort
+             *     below honest 0-grab items).
+             * @default false
+             */
+            preferDownloaded: boolean;
+            /**
+             * @description Drop releases where the indexer explicitly says password != 0.
+             * @default false
+             */
+            skipPassworded: boolean;
+        };
         RevealedKey: {
             value: string;
         };
@@ -4380,6 +4880,32 @@ export interface components {
             name: string;
             state: components["schemas"]["ItemHealth"];
         };
+        /**
+         * @description v1-fork search settings: `search.exclude-patterns` and the `api.*-user-agent` values,
+         *     plus the master switch for the external-ID resolvers.
+         */
+        Search: {
+            /**
+             * @description One exclude regex per line (bare .NET body or `/body/flags`); matching titles drop.
+             * @default
+             */
+            exclude_patterns: string;
+            /**
+             * @description Master switch for the external-ID resolvers (TVmaze/Wikidata/Kitsu/anime-lists).
+             * @default true
+             */
+            resolvers_enabled: boolean;
+            /**
+             * @description User-Agent for indexer search requests (v1 `api.search-user-agent`).
+             * @default nzbdav/0.0.0
+             */
+            search_user_agent: string;
+            /**
+             * @description User-Agent for NZB retrieval (v1 `api.user-agent`); default `SABnzbd/5.1.0`.
+             * @default SABnzbd/5.1.0
+             */
+            user_agent: string;
+        };
         /** @description A password or key. `Debug` never prints it. */
         Secret: string;
         SegmentStats: {
@@ -4431,6 +4957,15 @@ export interface components {
              */
             experiments: string[];
             /**
+             * @description v1 `grab.stall-failover-*` — stalled-candidate failover during play.
+             * @default {
+             *       "stallFailoverCeilingSeconds": 5,
+             *       "stallFailoverEnabled": true,
+             *       "stallFailoverWindowSeconds": 2
+             *     }
+             */
+            grab: components["schemas"]["Grab"];
+            /**
              * @default {
              *       "auto_repair": true,
              *       "check_percent": 5,
@@ -4444,6 +4979,7 @@ export interface components {
             health: components["schemas"]["Health"];
             /**
              * @default {
+             *       "handoff_permissions": null,
              *       "library_dirs": [],
              *       "strategy": "symlinks",
              *       "strm_dir": "/data/completed-downloads",
@@ -4451,6 +4987,17 @@ export interface components {
              *     }
              */
             imports: components["schemas"]["Imports"];
+            /**
+             * @description v1 `indexers.instances` — the Newznab/Prowlarr indexer list.
+             * @default {
+             *       "indexers": [],
+             *       "maxResponseBytes": null,
+             *       "proxyUrl": null,
+             *       "searchResultLimit": null,
+             *       "timeoutSeconds": null
+             *     }
+             */
+            indexers: components["schemas"]["IndexerConfig"];
             /**
              * @default {
              *       "backup": {
@@ -4518,8 +5065,62 @@ export interface components {
              *     }
              */
             performance: components["schemas"]["Performance"];
+            /**
+             * @description v1 `play.*` — play/failover path.
+             * @default {
+             *       "candidateNegativeCacheMinutes": 5,
+             *       "excludePatterns": "",
+             *       "hedgeDelaySeconds": 3,
+             *       "maxAttempts": 10,
+             *       "maxCandidates": 3,
+             *       "preferSubtitles": true,
+             *       "resolutionCacheTtlHours": 168,
+             *       "stallNegativeMarkingEnabled": false,
+             *       "stallNegativeMarkingMinutes": 15,
+             *       "totalBudgetSeconds": 30,
+             *       "verifyMode": "none",
+             *       "verifySampleCount": 3,
+             *       "watchdogEnabled": true
+             *     }
+             */
+            play: components["schemas"]["Play"];
+            /**
+             * @description v1 `preflight.*` — background candidate verification.
+             * @default {
+             *       "indexerMaxWaitSeconds": 5,
+             *       "maxAttempts": 20,
+             *       "mode": "off",
+             *       "ttlSeconds": 120
+             *     }
+             */
+            preflight: components["schemas"]["Preflight"];
+            /**
+             * @description v1 `profiles.instances` — token-addressable search profiles.
+             * @default {
+             *       "profiles": []
+             *     }
+             */
+            profiles: components["schemas"]["ProfileConfig"];
             /** @default [] */
             providers: components["schemas"]["Provider"][];
+            /**
+             * @description v1 `prowlarr.*` — Prowlarr pull-sync connection and status.
+             * @default {
+             *       "api_key": "",
+             *       "sync_enabled": false,
+             *       "sync_interval_minutes": 60,
+             *       "sync_status": null,
+             *       "url": ""
+             *     }
+             */
+            prowlarr: components["schemas"]["Prowlarr"];
+            /**
+             * @default {
+             *       "socks5": "",
+             *       "socks5_bypass": ""
+             *     }
+             */
+            proxy: components["schemas"]["Proxy"];
             /**
              * @default {
              *       "concurrency": 2,
@@ -4540,6 +5141,13 @@ export interface components {
             rclone_rc: components["schemas"]["RcloneRc"];
             /**
              * @default {
+             *       "readahead_enabled": false,
+             *       "readahead_window_seconds": 45
+             *     }
+             */
+            repair: components["schemas"]["Repair"];
+            /**
+             * @default {
              *       "api_key": "",
              *       "categories": [
              *         "audio",
@@ -4551,6 +5159,61 @@ export interface components {
              *     }
              */
             sab: components["schemas"]["Sab"];
+            /**
+             * @description v1-fork search settings: exclude patterns and user agents (`search.*`, `api.*-user-agent`).
+             * @default {
+             *       "exclude_patterns": "",
+             *       "resolvers_enabled": true,
+             *       "search_user_agent": "nzbdav/0.0.0",
+             *       "user_agent": "SABnzbd/5.1.0"
+             *     }
+             */
+            search: components["schemas"]["Search"];
+            /**
+             * @description v1 `warden.*` — dead-release list.
+             * @default {
+             *       "backboneScope": true,
+             *       "hideDead": true,
+             *       "maxSourceEntries": 2000000,
+             *       "quorum": 2
+             *     }
+             */
+            warden: components["schemas"]["Warden"];
+            /**
+             * @description v1 `watchtower.*` — automatic grabs.
+             * @default {
+             *       "activeSetCap": 100,
+             *       "autoThroughput": false,
+             *       "dailyResolveBudget": 60,
+             *       "enabled": false,
+             *       "grabCapPerResolve": 3,
+             *       "keepfreshBaseSeconds": 3600,
+             *       "keepfreshMaxSeconds": 86400,
+             *       "listSourceMaxResponseBytes": 16777216,
+             *       "minGrabs": 0,
+             *       "profileToken": "",
+             *       "ranking": "watchdog",
+             *       "resolveConcurrency": 3,
+             *       "seasonBundleFallback": false,
+             *       "seasonBundleFallbackMaxEpisodes": 50,
+             *       "seasonBundleFallbackRecentCount": 2,
+             *       "seasonBundleFallbackScope": "recent",
+             *       "seasonBundles": true,
+             *       "seriesCapKeep": "newest",
+             *       "seriesMaxEpisodes": 50,
+             *       "seriesRecentCount": 3,
+             *       "seriesScope": "latest-season",
+             *       "shortlistDepth": 2,
+             *       "sizeCeilingBytes": 0,
+             *       "sizeFloorBytes": 524288000,
+             *       "syncIntervalSeconds": 3600,
+             *       "unavailableRetrySeconds": 21600,
+             *       "verboseLogging": false,
+             *       "verifySampleCount": 3,
+             *       "verifyTimeoutSeconds": 10
+             *     }
+             */
+            watchtower: components["schemas"]["Watchtower"];
             /**
              * @default {
              *       "download_key": "",
@@ -4772,6 +5435,7 @@ export interface components {
         /** @description Removing completed downloads in unowned categories that nobody has read for a while. */
         UnreadSettings: {
             /**
+             * Format: int32
              * @description Days without a read after which a completed download in an unowned category goes.
              * @default 30
              */
@@ -4839,6 +5503,173 @@ export interface components {
             providers: {
                 [key: string]: components["schemas"]["ProviderUsage"];
             };
+        };
+        /** @description v1 `warden.*` — the dead-release list (Phase 3). */
+        Warden: {
+            /**
+             * @description v1 default true.
+             * @default true
+             */
+            backboneScope: boolean;
+            /**
+             * @description v1 default true.
+             * @default true
+             */
+            hideDead: boolean;
+            /**
+             * Format: int32
+             * @description v1 default 2,000,000 (> 0).
+             * @default 2000000
+             */
+            maxSourceEntries: number;
+            /**
+             * Format: int32
+             * @description v1 default 2 (>= 1).
+             * @default 2
+             */
+            quorum: number;
+        };
+        /** @description v1 `watchtower.*` — automatic series/movie grabs (Phase 3). */
+        Watchtower: {
+            /**
+             * Format: int32
+             * @description v1 default 100, clamp 1..=100000.
+             * @default 100
+             */
+            activeSetCap: number;
+            /** @default false */
+            autoThroughput: boolean;
+            /**
+             * Format: int32
+             * @description v1 default 60.
+             * @default 60
+             */
+            dailyResolveBudget: number;
+            /** @default false */
+            enabled: boolean;
+            /**
+             * Format: int32
+             * @description v1 default 3, clamp 1..=10.
+             * @default 3
+             */
+            grabCapPerResolve: number;
+            /**
+             * Format: int32
+             * @description v1 keep-fresh bounds.
+             * @default 3600
+             */
+            keepfreshBaseSeconds: number;
+            /**
+             * Format: int32
+             * @default 86400
+             */
+            keepfreshMaxSeconds: number;
+            /**
+             * Format: int64
+             * @description v1 default: watchtower list source byte cap.
+             * @default 16777216
+             */
+            listSourceMaxResponseBytes: number;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            minGrabs: number;
+            /** @default  */
+            profileToken: string;
+            /**
+             * @description `watchdog` (default) | `largest`.
+             * @default watchdog
+             */
+            ranking: string;
+            /**
+             * Format: int32
+             * @description v1 default 3, clamp 1..=16.
+             * @default 3
+             */
+            resolveConcurrency: number;
+            /** @default false */
+            seasonBundleFallback: boolean;
+            /**
+             * Format: int32
+             * @default 50
+             */
+            seasonBundleFallbackMaxEpisodes: number;
+            /**
+             * Format: int32
+             * @default 2
+             */
+            seasonBundleFallbackRecentCount: number;
+            /** @default recent */
+            seasonBundleFallbackScope: string;
+            /** @default true */
+            seasonBundles: boolean;
+            /**
+             * @description `newest` (default) | `oldest`.
+             * @default newest
+             */
+            seriesCapKeep: string;
+            /**
+             * Format: int32
+             * @description v1 default 50, clamp 0..=1000.
+             * @default 50
+             */
+            seriesMaxEpisodes: number;
+            /**
+             * Format: int32
+             * @description v1 default 3, clamp 1..=100.
+             * @default 3
+             */
+            seriesRecentCount: number;
+            /**
+             * @description Global series scope: `latest-season` (default) | `all-aired` | `first-season` | `recent` | `off`.
+             * @default latest-season
+             */
+            seriesScope: string;
+            /**
+             * Format: int32
+             * @description v1 default 2, clamp 1..=5.
+             * @default 2
+             */
+            shortlistDepth: number;
+            /**
+             * Format: int64
+             * @description v1 default 0 = no ceiling.
+             * @default 0
+             */
+            sizeCeilingBytes: number;
+            /**
+             * Format: int64
+             * @description v1 default 524288000 (500 MiB).
+             * @default 524288000
+             */
+            sizeFloorBytes: number;
+            /**
+             * Format: int32
+             * @description v1 default 3600, clamp 60..=86400.
+             * @default 3600
+             */
+            syncIntervalSeconds: number;
+            /**
+             * Format: int32
+             * @description v1 default 21600 (6 h), clamp 600..=604800.
+             * @default 21600
+             */
+            unavailableRetrySeconds: number;
+            /** @default false */
+            verboseLogging: boolean;
+            /**
+             * Format: int32
+             * @description v1 default 3, clamp 1..=20.
+             * @default 3
+             */
+            verifySampleCount: number;
+            /**
+             * Format: int32
+             * @description v1 default 10, clamp 2..=120.
+             * @default 10
+             */
+            verifyTimeoutSeconds: number;
         };
         /** @description `WebDAV` login, separate from the UI login. */
         WebDav: {
@@ -7272,6 +8103,37 @@ export interface operations {
         requestBody: {
             content: {
                 "multipart/form-data": components["schemas"]["Upload"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Queued"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    post_queue_from_url: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": components["schemas"]["FromUrl"];
             };
         };
         responses: {

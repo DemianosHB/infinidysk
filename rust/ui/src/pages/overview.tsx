@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, CircleAlert, Info, Star, X } from "lucide-react";
-import { type PointerEvent, type ReactNode, memo, useLayoutEffect, useRef, useState } from "react";
+import { type PointerEvent, type ReactNode, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { api, body, type Schemas } from "../api/client";
 import { ago, bytes, duration, stamp } from "../format";
@@ -169,6 +169,7 @@ export function Overview() {
             <Windowed history={history.data} span={span} />
           )}
         </section>
+        {history.data && <IndexerStats overview={history.data} />}
         {history.data && <Reads reads={history.data.reads} />}
       </div>
     </>
@@ -935,6 +936,153 @@ const Reads = memo(function Reads({ reads }: { reads: Read[] }) {
     </section>
   );
 });
+
+/** v1-fork indexer statistics: downloads per indexer over the last 30 days and hit usage in the reset window. */
+function IndexerStats({ overview: h }: { overview: History }) {
+  const scores = h.indexers;
+  const usage = h.indexer_api_usage;
+  if (scores.length === 0 && usage.length === 0) return null;
+  return (
+    <section aria-labelledby="indexers" className="space-y-6">
+      <h2 id="indexers" className="font-medium">
+        Indexers
+      </h2>
+      {scores.length > 0 && <IndexerScoreboard rows={scores} />}
+      {usage.length > 0 && <IndexerApiUsage rows={usage} />}
+    </section>
+  );
+}
+
+/** Completed vs failed downloads per indexer, last 30 days (v1 indexer scoreboard). */
+function IndexerScoreboard({ rows }: { rows: Schemas["IndexerRow"][] }) {
+  const failed = rows.reduce((n, r) => n + r.failed, 0);
+  return (
+    <Card
+      sub
+      title="Downloads by indexer"
+      description="Completed vs failed downloads, last 30 days"
+      action={
+        <Link to="/settings/indexers" className={cn("text-xs underline underline-offset-2", failed > 0 ? "text-warning-text" : "text-muted-foreground")}>
+          {failed > 0 ? `${count(failed, "failed download")} — review indexer settings` : "Indexer settings"}
+        </Link>
+      }
+    >
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Indexer</TableHead>
+            <TableHead className="text-right">Completed</TableHead>
+            <TableHead className="text-right">Failed</TableHead>
+            <TableHead className="hidden text-right sm:table-cell">Success</TableHead>
+            <TableHead className="hidden text-right md:table-cell">Bytes</TableHead>
+            <TableHead className="hidden text-right md:table-cell">Avg time</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((r) => (
+            <TableRow key={r.name}>
+              <TableCell className="w-full max-w-0 font-medium">
+                <div className="truncate" title={r.name}>
+                  {r.name}
+                </div>
+              </TableCell>
+              <TableCell className="text-right tabular-nums">{count(r.completed)}</TableCell>
+              <TableCell className={cn("text-right tabular-nums", r.failed > 0 && "text-destructive")}>{count(r.failed)}</TableCell>
+              <TableCell className="hidden text-right tabular-nums sm:table-cell">{pct(r.completed, r.completed + r.failed)}</TableCell>
+              <TableCell className="hidden text-right tabular-nums md:table-cell">{bytes(r.bytes_completed, true)}</TableCell>
+              <TableCell className="text-muted-foreground hidden text-right tabular-nums md:table-cell">{duration(r.avg_seconds)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Card>
+  );
+}
+
+/** Hits in the current reset window per indexer (v1 "Indexer API usage"). */
+function IndexerApiUsage({ rows }: { rows: Schemas["IndexerApiUsageRow"][] }) {
+  // Tick once a minute so the "in Xm" countdown stays fresh; the counts themselves
+  // refresh with the overview's 60 s poll.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <Card sub title="Indexer API usage" description="Hits in the current reset window per indexer">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Indexer</TableHead>
+            <TableHead className="min-w-44">API hits</TableHead>
+            <TableHead className="min-w-44">Downloads</TableHead>
+            <TableHead className="hidden text-right sm:table-cell">Next reset</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((r) => (
+            <TableRow key={r.name}>
+              <TableCell className="w-full max-w-0 font-medium">
+                <div className="truncate" title={r.name}>
+                  {r.name}
+                </div>
+              </TableCell>
+              <TableCell className="min-w-0">
+                <UsageBar used={r.api_hits} limit={r.api_hit_limit} label={`${r.name} API hits`} />
+              </TableCell>
+              <TableCell className="min-w-0">
+                <UsageBar used={r.download_hits} limit={r.download_hit_limit} label={`${r.name} downloads`} />
+              </TableCell>
+              <TableCell className="text-muted-foreground hidden text-right font-mono text-xs whitespace-nowrap tabular-nums sm:table-cell">
+                {resetText(r.reset_at_ms, r.reset_hour_utc, now)}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Card>
+  );
+}
+
+function UsageBar({ used, limit, label }: { used: number; limit: number | null | undefined; label: string }) {
+  if (limit == null || limit <= 0) {
+    return (
+      <div className="flex min-w-0 items-center gap-2.5">
+        <div className="bg-muted h-2 min-w-0 flex-1 overflow-hidden rounded-full" role="img" aria-label={`${label}: ${count(used)}, unlimited`}>
+          <div className="bg-primary h-full" style={{ width: "0%" }} />
+        </div>
+        <span className="shrink-0 text-xs whitespace-nowrap tabular-nums">
+          {count(used)} <span className="text-muted-foreground">· unlimited</span>
+        </span>
+      </div>
+    );
+  }
+  const share = Math.min(100, (used / limit) * 100);
+  const tone = share >= 100 ? "bg-destructive" : share >= 80 ? "bg-warning" : "bg-primary";
+  return (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <div className="bg-muted h-2 min-w-0 flex-1 overflow-hidden rounded-full" role="img" aria-label={`${label}: ${count(used)} of ${count(limit)}`}>
+        <div className={cn("h-full", tone)} style={{ width: `${share}%` }} />
+      </div>
+      <span className="shrink-0 text-xs whitespace-nowrap tabular-nums">
+        {count(used)}
+        <span className="text-muted-foreground"> / {count(limit)}</span>
+      </span>
+    </div>
+  );
+}
+
+/** "in 3d 4h (06:00 UTC)", or "in 25m" for the rolling 24 h window. */
+function resetText(resetAtMs: number, resetHourUtc: number | null | undefined, nowMs: number) {
+  const remaining = resetAtMs - nowMs;
+  if (remaining <= 0) return "now";
+  const mins = Math.floor(remaining / 60_000);
+  const days = Math.floor(mins / (24 * 60));
+  const hours = Math.floor((mins % (24 * 60)) / 60);
+  const countdown = days > 0 ? `${days}d ${hours}h` : hours > 0 ? `${hours}h ${mins % 60}m` : `${Math.max(1, mins % 60)}m`;
+  const suffix = resetHourUtc == null ? "" : ` (${String(resetHourUtc).padStart(2, "0")}:00 UTC)`;
+  return `in ${countdown}${suffix}`;
+}
 
 function ReadRow({ read: r, nested }: { read: Read; nested?: boolean }) {
   const pid = /\(pid (\d+)/.exec(r.client)?.[1];

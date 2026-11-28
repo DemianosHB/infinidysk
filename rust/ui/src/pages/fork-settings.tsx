@@ -139,7 +139,7 @@ export function IndexersPanel({ title, description }: { title: string; descripti
   const indexers = cfg.indexers;
 
   const patchList = (next: ForkIndexer[]) =>
-    save.mutate({ ...view.settings, indexers: { ...cfg, indexers: next } }, { onError: (e) => toast.error((e as Error).message) });
+    save.mutate({ ...view.settings, indexers: { ...cfg, indexers: next as typeof cfg.indexers } }, { onError: (e) => toast.error((e as Error).message) });
 
   const add = () => {
     if (!name.trim() || !url.trim()) return;
@@ -394,7 +394,7 @@ export function ProfilesPanel({ title, description }: { title: string; descripti
   const profiles = cfg.profiles;
 
   const patchList = (next: Profile[]) =>
-    save.mutate({ ...view.settings, profiles: { profiles: next } }, { onError: (e) => toast.error((e as Error).message) });
+    save.mutate({ ...view.settings, profiles: { profiles: next as typeof cfg.profiles } }, { onError: (e) => toast.error((e as Error).message) });
 
   const add = () => {
     if (!name.trim()) return;
