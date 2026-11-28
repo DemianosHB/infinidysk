@@ -50,7 +50,7 @@ async fn setup() -> (Router, Db) {
 fn entry(provider_host: Option<&str>) -> NewWatchdogEntry {
     NewWatchdogEntry {
         click_id: "click-1".to_owned(),
-        attempted_at: 1_800_000_000,
+        attempted_at: 1_800_000_000_000,
         content_type: "movie".to_owned(),
         requested_title: "Dune".to_owned(),
         candidate_title: "Dune.2024.2160p.WEB-DL".to_owned(),
@@ -107,6 +107,7 @@ async fn entries_require_the_api_key_and_resolve_nicknames() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0]["outcome"], "QueueCompleted");
     assert_eq!(entries[0]["isWinner"], true);
+    assert_eq!(entries[0]["attemptedAtUnix"], 1_800_000_000);
     assert_eq!(
         entries[0]["providerNickname"],
         "Eweka (80%), other.example (20%)"
